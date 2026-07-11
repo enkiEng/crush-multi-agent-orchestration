@@ -1,8 +1,14 @@
 # Proposal: Interactive Multi-Agent Orchestration for Crush
 
-**Revision:** 2 (2026-07-11)
-**Supersedes:** v1 (`~/Library/Mobile Documents/com~apple~CloudDocs/Interactive_Multi-Agent_Crush_Proposal.md`)
-**Changes in this revision:** corrected the `--yolo` safety claim; respecified progress reporting as file-based polling; concretized the agent commands as an MCP server; added a prior-art evaluation step; added a risks section; added an MVP plan and benchmark criteria.
+**Revision:** 3 (2026-07-11)
+**Supersedes:** v2 (2026-07-11); v1 (iCloud original)
+**Changes in this revision:** integrated a deep-research survey of the options
+landscape (109-agent research run, 26 sources, every claim below marked
+"verified" survived 3-voter adversarial verification on 2026-07-11).
+Corrected the Crush upstream citation (#431, not #1320). **Changed the primary
+recommendation** from build-custom-MCP-server to adopt-container-use-first,
+with the custom MCP server as fallback/complement. Added Claude Code-on-vLLM
+(no proxy needed), Goose, and Herdr assessments; disqualified Vibe Kanban.
 
 ## Background
 
@@ -16,11 +22,17 @@ Current AI coding tools generally fall into two categories:
 I would like to preserve Crush's interactive workflow while gaining
 Claude Code-style parallel delegation.
 
-Crush has no built-in subagent capability. A feature request for
-exactly this ([charmbracelet/crush#1320](https://github.com/charmbracelet/crush/issues/1320))
-is open with no maintainer response as of 2026-07. Building an external
-orchestration layer avoids maintaining a fork; if upstream ships
-orchestration natively later, little is lost.
+**Upstream status (verified):** Crush has no *user-configurable*
+subagent feature. It does ship one hardcoded internal "task" subagent
+that the coder agent can delegate exploratory work to (model-initiated,
+temporary, for context isolation), but there is no way to define custom
+subagents, per-subagent models, or parallel background children.
+Feature request [charmbracelet/crush#431](https://github.com/charmbracelet/crush/issues/431)
+(opened 2025-07-31) is open, and Charm maintainer meowgorithm confirmed
+on 2025-12-17 that subagents and skills are **planned** — but nothing
+had shipped as of 2026-06. External tooling is therefore required today,
+and this proposal should be revisited when #431 ships (it may obsolete
+most of it).
 
 ## Core Idea
 
@@ -38,19 +50,108 @@ unattended (batch).
        Agent A     Agent B     Agent C
        (batch)     (batch)     (batch)
 
-Each child agent:
+Crush's extension points support this without forking (verified):
+MCP servers over stdio/http/sse, and OpenAI-compatible custom providers
+(`openai-compat` + `base_url`) so a self-hosted vLLM endpoint serves all
+inference. Known friction to retest on current versions: crush#840
+(stdio broken pipe with container-use, closed not-planned), crush#1733
+(MCP connected but sometimes not invoked), crush#2936 (vLLM tool-call
+regression in v0.67.0, since fixed).
 
--   Runs as a headless Crush process: `crush run --yolo --quiet --cwd <worktree> "<task spec>"`.
-    (`crush run` non-interactive mode, `--quiet`, `--cwd`, and `--yolo`
-    are documented Crush behavior.)
--   Runs in its own Git worktree, on its own branch.
--   Connects to the same Kubernetes-hosted vLLM endpoint via Crush's
-    `openai-compat` provider type (documented).
--   Has an independent context window.
--   Writes status to a per-agent JSONL file that the parent polls.
--   Writes a structured result file that the parent reviews before merge.
+## Options Landscape (deep research, 2026-07-11)
 
-## Isolation and Safety (corrected from v1)
+Ranked for this environment (interactive Crush parent, self-hosted
+vLLM/K8s, per-child isolation, review-before-merge):
+
+### 1. Keep Crush + Dagger container-use MCP server — recommended first try
+
+[container-use](https://github.com/dagger/container-use) (Apache-2.0,
+Dagger) is a stdio MCP server that works with any MCP-capable agent and
+has an [official Charm Crush setup guide](https://container-use.com/agent-integrations)
+(config in `.crush.json`, rules in `CRUSH.md`) among 18+ agents
+(verified). It satisfies four requirements at once:
+
+-   **Parent-model-initiated spawning:** the agent itself calls
+    `environment_create` / `environment_open` MCP tools (verified).
+-   **Dual-layer isolation:** each agent/task gets a fresh container
+    backed by its own Git branch, orchestrated by the Dagger engine
+    (verified) — stronger than the worktree-only posture in earlier
+    revisions of this proposal.
+-   **Zero Crush replacement cost**, and the vLLM `openai-compat`
+    config is unchanged.
+-   **Review-before-merge:** structurally supported by
+    branch-per-environment (review UX not independently verified).
+
+Caveats (verified): the project self-labels experimental; last
+confirmed tagged release v0.4.2 (2025-08) though repo pushes continued
+through 2026-06; crush#840 reported a stdio broken pipe with
+container-use 0.4.1 and was closed not-planned. **A hands-on smoke test
+on current versions is mandatory before committing.** Requires a
+container runtime on the host.
+
+### 2. Custom stdio MCP server over git worktrees — fallback/complement
+
+The v2 design (below) remains fully feasible per Crush's documented MCP
+support and uses the exact integration mechanism container-use proves
+out. Build it if the container-use smoke test fails, if the Docker/
+Dagger dependency is unwanted, or if worktree-level isolation plus the
+task-spec/RESULT.md protocol is a better fit. Roughly a day for the MVP.
+
+### 3. Claude Code pointed directly at vLLM — cheaper than assumed, replaces Crush UX
+
+vLLM's default frontend **natively implements the Anthropic Messages
+API** — no LiteLLM, no claude-code-router (verified via
+[official vLLM docs](https://docs.vllm.ai/en/stable/serving/integrations/claude_code/)).
+Setup is env vars only: `ANTHROPIC_BASE_URL` to the vLLM server, dummy
+`ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`, and
+`ANTHROPIC_DEFAULT_OPUS/SONNET/HAIKU_MODEL` overrides. This brings
+Claude Code's mature native Task/subagent orchestration to self-hosted
+inference. Qualifiers (verified): vLLM must run with
+`--enable-auto-tool-choice`, `--tool-call-parser`, and
+`--served-model-name` (no `/` in the name); the served model needs
+strong tool-calling; the experimental Rust frontend does not serve
+`/v1/messages`. Cost: abandons the Crush interface.
+
+### 4. Goose (Agentic AI Foundation, ex-Block) — autonomous subagents, weak isolation
+
+Goose's main agent **autonomously decides** to spawn subagents in its
+default autonomous mode, and tasks execute in parallel (~10 concurrent,
+verified). But its subagents docs describe no worktree or container
+isolation and no per-subagent model routing — two of five requirements
+undocumented. Possibly closable via subrecipe `goose_provider`/
+`goose_model` overrides (unverified). Weaker than options 1–2 here.
+
+### Complementary: Herdr — visibility layer, not an orchestrator
+
+[Herdr](https://herdr.dev/) (Rust, ~10MB single binary, ~12k stars by
+2026-06) is an *agent-aware* terminal multiplexer: tmux-style
+panes/persistence/SSH plus automatic per-pane agent state detection
+(blocked / working / done / idle) with notifications. It is
+programmatically drivable — `herdr workspace create`, `herdr pane
+split`, `herdr pane run`, and a socket API; "agents can orchestrate
+it." Any terminal agent runs in it; Crush is not a named integration,
+so rich state detection for Crush children is unconfirmed. Herdr does
+**not** manage worktrees or isolation (its own comparison page defers
+that to worktree tools) — so it complements options 1–2 as the
+process-visibility layer rather than competing with them.
+*(Researched separately from the adversarially-verified run; treat as
+documented-by-vendor.)*
+
+### Disqualified and unranked
+
+-   **Vibe Kanban — avoid** (verified): sunsetting after Bloop's
+    2026-04-10 shutdown (last release v0.1.44, 2026-04-24), and it
+    never supported Crush (hardcoded executors; zero Crush references
+    in the codebase).
+-   **Unranked for lack of verified evidence** (not assessed
+    inferiority): Claude Squad, Composio agent-orchestrator, Emdash,
+    Crystal, uzi, gwq, Conductor, Agent Kanban, Bernstein, OpenCode
+    subagents, Qwen Code, Gemini CLI, Aider, Roo Code/Cline orchestrator
+    modes, raw tmux DIY, and framework builds (Claude Agent SDK, OpenAI
+    Agents SDK, LangGraph). The heavier framework path is unjustified
+    while options 1–2 exist.
+
+## Isolation and Safety
 
 v1 claimed "no requirement for `--yolo`" as a benefit. That was wrong:
 child agents **must** run with `--yolo` (or an exhaustive
@@ -63,40 +164,39 @@ retains full filesystem access outside its worktree, plus the user's
 environment variables, credentials, and network access. Worktrees are a
 merge-hygiene mechanism, not a security boundary.
 
-Two isolation postures, chosen per deployment:
+Isolation postures, in increasing strength:
 
 | Posture | Mechanism | Protects against | Cost |
 |---------|-----------|-----------------|------|
-| Trust-the-model | Worktree only | Merge conflicts, dirty-tree collisions | None |
-| Container isolation | One pod per agent on the existing k8s cluster (worktree mounted in), or Dagger `container-use` MCP server | Destructive shell commands, credential exposure, unwanted network egress | Pod startup latency, image maintenance |
+| Trust-the-model | Worktree only (option 2 MVP) | Merge conflicts, dirty-tree collisions | None |
+| Container per agent | container-use (option 1), or one pod per agent on the existing k8s cluster | Destructive shell commands, credential exposure, unwanted network egress | Container runtime, image maintenance |
 
-For any environment where a runaway `rm -rf` or a call to a production
-endpoint is unacceptable, use container isolation. The k8s cluster is
-already present, so this is incremental effort, not new infrastructure.
+Option 1 makes the stronger posture the default rather than an upgrade,
+which is a further argument for trying it first.
 
-## Progress Reporting (respecified from v1)
+## Progress Reporting
 
 v1 said children "stream progress back to the parent session." Crush is
 a Bubble Tea TUI with no documented API for injecting external async
 events into a live session, so push-streaming has no implementation
-path today. Respecified as **pull**:
+path today. Respecified as **pull**, with two implementations:
 
--   Each child appends status events to `<state-dir>/<agent-id>/status.jsonl`
-    (started, tool-use summary, tokens consumed, done/failed).
--   The parent model calls an `agent_status` MCP tool on demand — e.g.
-    when the user asks "how are the agents doing?"
--   Optional: run children in tmux panes beside the parent for
-    real-time human-visible output. This is display only; the merge
-    workflow still goes through result files.
+-   **Option 1 path:** container-use environments are inspectable via
+    its own tooling and git branches; the parent model queries via MCP.
+-   **Option 2 path:** each child appends status events to
+    `<state-dir>/<agent-id>/status.jsonl`; the parent model calls an
+    `agent_status` MCP tool on demand.
+-   **Either path + Herdr:** run children in Herdr panes for
+    human-visible live output with automatic blocked/working/done/idle
+    state and notifications — machine-readable via Herdr's socket API.
+    This supersedes the plain-tmux suggestion from v2.
 
-## Implementation: an MCP Server (concretized from v1)
+## Implementation: an MCP Server (option 2 detail)
 
 The agent-management commands are implemented as a small stdio MCP
-server registered in `crush.json` (Crush supports stdio/http/sse MCP
-servers — documented). This makes the tools callable by the parent
-*model*, so the parent can propose a decomposition and the user
-approves via Crush's normal permission prompt — exactly the example
-workflow below.
+server registered in `crush.json`. This makes the tools callable by the
+parent *model*, so the parent can propose a decomposition and the user
+approves via Crush's normal permission prompt.
 
 Tools:
 
@@ -116,6 +216,9 @@ off-spec):
 -   The child's prompt requires it to write `RESULT.md` (what was done,
     what was not, open questions) before exiting.
 -   `agent_merge` reviews `RESULT.md` plus the diff, never a bare diff.
+
+The same protocol applies under option 1, with container-use
+environments in place of bare worktrees.
 
 ## Example Workflow
 
@@ -140,8 +243,9 @@ User:
 The parent (via MCP tools, each spawn surfaced through Crush's
 permission prompt):
 
-1.  Creates Git worktrees and writes task-spec files.
-2.  Launches headless child Crush processes.
+1.  Creates isolated environments (containers or worktrees) and writes
+    task-spec files.
+2.  Launches headless child agents.
 3.  Remains interactive.
 4.  Reports child progress when polled.
 5.  Presents `RESULT.md` + diff for review before merging.
@@ -150,25 +254,6 @@ Note the hidden dependency in this example: B (prototype) benefits from
 A's findings. A dependency-aware variant runs A first, then feeds A's
 `RESULT.md` into B and C's task specs. Truly parallel tasks are rarer
 than they look — see Risks.
-
-## Step 0: Evaluate Prior Art First
-
-Worktree-per-agent orchestration is now a commodity pattern. Before
-building, spend an hour confirming none of these already fits, since
-several drive arbitrary CLI agents including Crush:
-
--   [Composio agent-orchestrator](https://github.com/ComposioHQ/agent-orchestrator)
--   Claude Squad, Vibe Kanban, and others catalogued in
-    [awesome-multi-agent-orchestrators](https://github.com/Agent-Analytics/awesome-multi-agent-orchestrators)
-    and [this survey](https://www.augmentcode.com/tools/open-source-agent-orchestrators)
--   [Dagger container-use](https://github.com/dagger/container-use) —
-    MCP server giving each agent a containerized environment; directly
-    addresses the isolation gap
-
-The custom MCP server remains justified if the requirement is
-specifically *parent-model-initiated* delegation from inside the Crush
-session, which the kanban-style orchestrators do not provide. But that
-should be a conscious choice, not a default.
 
 ## Why This Fits My Environment
 
@@ -184,16 +269,16 @@ additional clients of the existing vLLM service. The main constraints
 become GPU throughput, concurrency, and context length rather than API
 costs.
 
-## Risks and Failure Modes (new in v2)
+## Risks and Failure Modes
 
 -   **Task decomposition is the actual hard problem.** Genuinely
-    parallel *write* tasks need disjoint file sets, or `agent_merge`
-    becomes conflict-resolution hell. Heuristic: read-only
-    research/analysis tasks parallelize well; concurrent implementation
-    tasks on one subsystem usually don't. The parent's decomposition
-    step is the highest-skill task in the system.
+    parallel *write* tasks need disjoint file sets, or merging becomes
+    conflict-resolution hell. Heuristic: read-only research/analysis
+    tasks parallelize well; concurrent implementation tasks on one
+    subsystem usually don't. The parent's decomposition step is the
+    highest-skill task in the system.
 -   **Children can't ask clarifying questions.** Mitigated (not
-    eliminated) by the task-spec/RESULT.md protocol above.
+    eliminated) by the task-spec/RESULT.md protocol.
 -   **Concurrency degrades the interactive parent.** N children with
     50–100K-token agentic contexts compete for vLLM KV-cache and
     prefill; the observable symptom will be latency spikes in the
@@ -203,13 +288,28 @@ costs.
 -   **Model capability is the ceiling.** Multi-agent compounds per-step
     error rates, and decomposition/synthesis is the hardest step. The
     open-weight model served by vLLM will bound results far more than
-    the orchestration plumbing.
--   **`--yolo` children are unsandboxed by default.** See Isolation and
-    Safety; choose a posture explicitly per deployment.
+    the orchestration plumbing. (This also gates option 3: Claude
+    Code-on-vLLM inherits the same model's tool-calling strength.)
+-   **`--yolo` children are unsandboxed by default** under option 2's
+    MVP posture. See Isolation and Safety.
+-   **Integration bit-rot.** The Crush+container-use broken-pipe report
+    (crush#840) was closed not-planned; both projects move fast. The
+    smoke test below is the gate, and it should be re-run on upgrades.
 
-## MVP Plan (new in v2)
+## Plan (revised)
 
-Roughly a day of work, all on documented Crush behavior:
+**Step 0 — smoke test option 1 (half a day):** install container-use on
+current versions, wire it into `.crush.json` per the official guide,
+and run a two-child parallel task against the vLLM endpoint. Gate on:
+stdio stability (the #840 failure mode), model-initiated
+`environment_create` actually firing, and branch-per-environment review
+working.
+
+**If the smoke test passes:** adopt option 1. Add the task-spec/
+RESULT.md protocol via `CRUSH.md` rules. Optionally add Herdr as the
+visibility layer for child sessions.
+
+**If it fails:** build option 2 — the MVP is roughly a day:
 
 1.  Stdio MCP server exposing `spawn_agent` / `agent_status` /
     `agent_cancel` / `agent_list` (defer `agent_merge` — do the first
@@ -226,15 +326,50 @@ parent-session latency and child throughput at 1, 2, 4 concurrent
 children. That number — not the orchestrator — determines the practical
 fleet size.
 
-## Benefits (revised)
+**Watch upstream:** subscribe to crush#431. Native subagents are
+officially planned and would reduce or eliminate the need for this
+layer.
+
+## Open Questions
+
+-   Does Crush + container-use work reliably on current (mid-2026)
+    versions, given #840 was closed not-planned? (Step 0 answers this.)
+-   Real capability of the unverified orchestrators (Claude Squad, uzi,
+    gwq, Crystal, Emdash, Conductor, Composio AO) for Crush /
+    parent-model-initiated spawning — no verified evidence either way.
+-   When will crush#431 ship, and will it include parallel background
+    execution and per-subagent isolation?
+-   Can Goose achieve per-child model routing and real isolation via
+    subrecipes/extensions?
+-   Does Herdr's state detection work for Crush panes without a named
+    integration?
+
+## Benefits
 
 -   The user's workflow stays interactive; delegation is proposed by
     the parent and approved per-spawn via Crush's permission prompt.
 -   Parallel exploration of alternative solutions, with review of
     `RESULT.md` + diff before any merge.
--   Git worktrees prevent working-tree collisions and keep each
-    agent's work on its own branch (merge hygiene, not security).
--   Optional container isolation using infrastructure already in place.
+-   Container-plus-branch isolation by default under option 1;
+    worktree merge-hygiene at minimum under option 2.
 -   Natural fit for self-hosted Kubernetes/vLLM: marginal agent cost is
     GPU time, not API dollars.
--   No Crush fork; upstream compatibility preserved.
+-   No Crush fork; upstream compatibility preserved, with a clear
+    migration path if crush#431 ships native subagents.
+
+## Research Provenance
+
+Options landscape verified 2026-07-11 by a fan-out deep-research run:
+6 search angles, 26 sources fetched, 127 claims extracted, 25
+adversarially verified by three independent voters each (20 confirmed,
+5 refuted, 0 unverified). Refuted claims — including two sourced from
+crush#1320 and one mischaracterizing Vibe Kanban's spawning model —
+were excluded above. Primary sources: [crush README](https://github.com/charmbracelet/crush),
+[crush#431](https://github.com/charmbracelet/crush/issues/431),
+[container-use](https://github.com/dagger/container-use) and its
+[agent-integrations docs](https://container-use.com/agent-integrations),
+[Dagger blog](https://dagger.io/blog/agent-container-use/),
+[vLLM Claude Code integration docs](https://docs.vllm.ai/en/stable/serving/integrations/claude_code/),
+[Goose subagents docs](https://goose-docs.ai/docs/guides/context-engineering/subagents/),
+[vibe-kanban](https://github.com/BloopAI/vibe-kanban),
+[herdr.dev](https://herdr.dev/).
