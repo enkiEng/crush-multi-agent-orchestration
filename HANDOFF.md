@@ -243,6 +243,19 @@ closed hosts. Un-merged demo env on the host: `normal-lionfish`.
    ("found in multiple providers: X and X") — use a project `models`
    override instead. Both vLLM deployments left RUNNING (devstral +
    mistral) — user to decide scale-down.
+   **Cheap-fix tests (same day, benchmarks.md addendum 2):**
+   (a) per-child sandbox `HOME`s (XDG ignored; HOME honored; seed
+   .gitconfig + .docker/config.json + .config/crush) eliminate
+   cross-child env loss — 2/3 children's envs fully reviewable in
+   their own state; residual single-process container-use bug
+   ("failed to load state: unexpected end of JSON input" after a
+   successful create) hit 1 child, which honestly stopped (retry-cap
+   prompt worked). (b) Parent/child endpoint split is a COMPLETE
+   success: parent probes on mistral held 0.17–0.19s (= baseline)
+   while devstral was saturated by two 50K prefills (same probe on
+   devstral: 60s). **Recipe for a 2–3 child fleet NOW:** parent →
+   one endpoint; children → the other, each with sandbox HOME +
+   file:// clone + robust prompt + external test verification.
 3. Task-spec/RESULT.md protocol via CRUSH.md rules.
 4. Optional: Herdr as visibility layer (audit its update pings first).
 5. Watch crush#431 (native subagents would obsolete parts of this).
