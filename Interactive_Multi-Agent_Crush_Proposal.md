@@ -1,10 +1,19 @@
 # Proposal: Interactive Multi-Agent Orchestration for Crush
 
-**Revision:** 10 (2026-07-12)
-**Supersedes:** v9 (2026-07-12); v8 (2026-07-12); v7 (2026-07-12); v6
-(2026-07-12); v5 (2026-07-12); v4 (2026-07-12); v3 (2026-07-11); v2
-(2026-07-11); v1 (iCloud original)
-**Changes in this revision:** **Step 0 stage B executed and PASSED all
+**Revision:** 11 (2026-07-12)
+**Supersedes:** v10 (2026-07-12); v9 (2026-07-12); v8 (2026-07-12); v7
+(2026-07-12); v6 (2026-07-12); v5 (2026-07-12); v4 (2026-07-12); v3
+(2026-07-11); v2 (2026-07-11); v1 (iCloud original)
+**Changes in this revision:** added the "But it's in git — can't we
+just revert?" subsection to Isolation and Safety: git protects only
+committed tracked state in one repo, while an unsandboxed agent
+inherits the user's full account (uncommitted work, files outside the
+repo, AWS/kubectl/HPC/Bitbucket powers, CUI-compartment reach) —
+backed by the empirical stage B evidence (headless auto-approval, a
+1,092-command unattended bash loop). Framing for everyday developers:
+the container is what makes it safe to stop babysitting.
+
+**Changes in revision 10:** **Step 0 stage B executed and PASSED all
 three gates on RHEL 9.8 in the GovCloud VPC** (host `ravlymp-ls-000`,
 Crush 0.81.0-resgc-copilotfix via `crush-vpc`, container-use v0.4.2,
 Dagger engine v0.18.14, model `devstral-small-2` on the in-VPC vLLM
@@ -302,6 +311,49 @@ Git worktrees isolate the git working copy **only**. A `--yolo` child
 retains full filesystem access outside its worktree, plus the user's
 environment variables, credentials, and network access. Worktrees are a
 merge-hygiene mechanism, not a security boundary.
+
+### "But it's in git — can't we just revert?" (why git is not a safety net)
+
+A tempting objection to sandboxing: the project is in git, so if the
+agent does something dumb we see it and revert the commit. **Git
+protects exactly one thing: committed, tracked file state inside that
+one repo.** An unsandboxed agent runs as the user, with everything the
+user's account can touch. What `git revert` cannot undo:
+
+-   **Uncommitted work.** The classic agent failure is not a bad
+    commit — it is `git reset --hard` / `checkout .` / `clean -fd`
+    issued while "fixing" something, destroying hours of work that was
+    never committed. The reflog cannot recover what was never in it.
+-   **Everything outside the repo:** `~/.ssh`, `~/.aws`, dotfiles,
+    *other* repos, system configs. One mis-expanded variable in an
+    `rm -rf` ignores git discipline entirely.
+-   **Actions, not files.** On the deployment target this is decisive:
+    a RESGC developer account carries admin AWS CLI, kubectl over the
+    EKS cluster, SSH trust into HPC login nodes, Bitbucket and ECR
+    rights. `git revert` does not undo `aws ecr delete-repository`,
+    `kubectl scale`, a force-push over a shared branch, or a batch-job
+    submission — and the agent inherits every one of those powers.
+-   **Data spillage.** Accounts span multiple CUI compartments; an
+    agent that "helpfully" greps across `$HOME` can pull material from
+    one compartment into another project's repo or into the LLM
+    context. Reverting the commit does not un-spill it in any
+    regulated sense.
+
+This is not hypothetical. In the 2026-07-12 stage B runs, on the
+production host: headless Crush auto-approved `bash` despite a
+whitelist excluding it; children edited host files against explicit
+instructions; one child executed **1,092 unattended bash commands over
+40 minutes**. That loop happened to be harmless retries — the same
+failure mode retrying an `aws` verb or an `rm` would not have been.
+
+The fair concession: an *interactive* session with permission prompts,
+plus git, plus an attentive user, is decent protection — but it is
+slow, and fifty approvals in, everyone rubber-stamps. So the sandbox's
+real value proposition for the everyday developer is precise: **the
+container is what makes it safe to stop babysitting.** Without it the
+choice is approve-every-command (safe, tedious) or `--yolo` (fast, and
+the 1,092-command loop runs as you). With it, yolo-inside-the-box is
+fast *and* bounded: worst case, delete the environment.
 
 Isolation postures, in increasing strength:
 
