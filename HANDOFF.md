@@ -213,10 +213,20 @@ closed hosts. Un-merged demo env on the host: `normal-lionfish`.
    designated-agent-host model (one approved box runs engine +
    children; users ssh in — ravlymp-ls-000 is this de facto today).
 1. Persist the iptables modules on rhelLS (`/etc/modules-load.d/`).
-2. Benchmark (proposal Plan): parent latency + child throughput at
-   1/2/4 concurrent children, ~50K-token contexts, on devstral vs
-   mistral-small-24b; record in `../benchmarks.md`. This also decides
-   whether devstral-small-2 is robust enough to be the parent.
+2. ~~Benchmark~~ **DONE 2026-07-12 — see `../benchmarks.md`. Verdict:
+   with devstral-small-2 the practical fleet is 1 (serial).** B1
+   (serial, 1 env, 3 modules) = 2m28s, 9/9 green, contained. B2 (3
+   concurrent children in clones) = 39m50s, 0/3 contained:
+   `environment_create` fails in clones with local-path origin remotes
+   ("invalid endpoint"), all children fell back to host writes
+   (headless-yolo), one looped bash 1,092 times. Endpoint at 50K ctx:
+   prefill ~30s, serializes, starves interactive traffic (probe 0.12s
+   idle → 45s at 4 streams; no chunked prefill configured); prefix
+   caching works. Before re-attempting parallel children: fix the child
+   working-copy pattern (real git URL origin / same repo dir /
+   container-use worktrees), compare mistral-small-24b, tune vLLM
+   chunked-prefill/priority. devstral-small-2 as unattended child:
+   NOT robust (3 pathologies observed in one day).
 3. Task-spec/RESULT.md protocol via CRUSH.md rules.
 4. Optional: Herdr as visibility layer (audit its update pings first).
 5. Watch crush#431 (native subagents would obsolete parts of this).
