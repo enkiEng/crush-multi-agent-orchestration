@@ -204,14 +204,76 @@ the test per user instruction. Host reaches docker.io directly
 Tailscale hop ≈ 1 MB/s; use S3-via-VPC-endpoint for bulk on truly
 closed hosts. Un-merged demo env on the host: `normal-lionfish`.
 
+## Fleet deployment architecture (direction set 2026-07-12): dedicated container-host
+
+Decision from the fleet-rollout discussion: do NOT put Docker/Dagger on
+every RESGC workstation, and get the engine OFF the license server
+(ravlymp-ls-000 — it hosted all Step 0/benchmark work and its disk is
+at 91%). Instead, one **dedicated container-services host** (plain EC2,
+RHEL9, no GPU; CPU + RAM + generous disk for the layer cache):
+
+    RHEL9 workstations ─┐
+    WS2022 instances  ──┼── tcp:// ──> dedicated container host
+    Mac (staging)     ──┘              ├─ Dagger engine (TCP listener;
+                                       │   all environments run here)
+                                       ├─ Docker CE (hosts the engine)
+                                       └─ GitHub self-hosted runner
+                                           (also moving off the LS)
+
+Key facts supporting this design (verified today unless noted):
+
+- Clients select a remote engine via `_EXPERIMENTAL_DAGGER_RUNNER_HOST`
+  — we used the `docker-container://` form all day; the `tcp://host:port`
+  form is the documented remote-runner mode (NOT yet tested by us).
+- **WS2022 gets sandboxing back**: the rev 7 rejection only blocked
+  running the ENGINE on Windows (WSL2/nested-virt). As a thin client —
+  Crush + container-use.exe (native Windows binaries exist, v0.4.0+) +
+  the tcp:// env var — Windows never needs a container runtime. The
+  full Windows→tcp-engine chain is UNVERIFIED; half-day smoke test
+  (same three gates) once the host exists.
+- Repo stays on the client; the Dagger client uploads context to the
+  engine (docker-build-style), review commands run locally.
+- **TRM story shrinks**: one approved container-host + an unprivileged
+  client binary everywhere, instead of Docker-per-workstation. Also
+  makes the Podman question less urgent (the one host runs proven
+  Docker CE; rootful-Podman test remains open but non-blocking).
+- **Security caveat:** the engine's TCP port has NO auth — reaching it
+  ≈ root on the container host. Lock the security group to exactly the
+  client instances; treat port access as a granted privilege.
+- Place the host in a subnet with same-subnet ECR VPC endpoints so the
+  offline-base-image pattern keeps working (that's how ravlymp-ls-000
+  pulls cu-base with ip_forward=0).
+- **k8s-hosted engine considered and rejected** for now: Dagger has a
+  Helm chart, but the engine pod needs `privileged: true` — root-grade
+  workload on the accredited production inference EKS cluster, plus
+  k8s adds little for a stateful cache singleton and complicates
+  host-level debugging (today's modprobe/DNS fixes). Graduation path
+  if one host ever saturates: dedicated TAINTED node group running the
+  Dagger Helm chart, engines never co-scheduled with production.
+  (Precedent: GitHub's own hosted runners are VM-per-job, not k8s;
+  ARC/k8s is only their self-hosted option.)
+- **Apptainer is NOT a path for container-use/Dagger** (no Docker API,
+  engine can't run unprivileged/nested). If TRM rejects both Docker
+  and Podman everywhere INCLUDING the dedicated host, the fallback is
+  proposal option 2 (custom worktree MCP server, ~1-day MVP) with
+  children wrapped in `apptainer exec --contain` — loses container-use
+  review niceties, keeps containment; unprivileged Apptainer cannot
+  block network (less critical on no-egress hosts).
+
 ## Next actions (option 1 adopted)
 
 0. **TRM check (institutional gate):** Docker CE is NOT on all RESGC
-   RHEL9 images — verify TRM status for Docker CE (or Podman as
-   fallback), the Dagger engine image (runs privileged), and the
-   container-use binary. If fleet-wide Docker is blocked, consider the
-   designated-agent-host model (one approved box runs engine +
-   children; users ssh in — ravlymp-ls-000 is this de facto today).
+   RHEL9 images — but under the dedicated container-host architecture
+   (section above) the ask shrinks to: one approved host running
+   Docker CE + the Dagger engine (privileged) + optionally the gh
+   runner, plus the unprivileged container-use client binary on
+   workstations. Verify that package; Podman remains the fallback
+   runtime (still unverified with container-use).
+0b. **Stand up the dedicated container-host** (EC2, RHEL9, no GPU,
+   big disk, same-subnet ECR endpoints, SG locked to client
+   instances); migrate the engine off ravlymp-ls-000; then smoke-test
+   the remote tcp:// chain from a RHEL9 workstation AND a WS2022
+   instance (Windows chain is the novel/unverified part).
 1. Persist the iptables modules on rhelLS (`/etc/modules-load.d/`).
 2. ~~Benchmark~~ **DONE 2026-07-12 — see `../benchmarks.md`. Verdict:
    with devstral-small-2 the practical fleet is 1 (serial).** B1
