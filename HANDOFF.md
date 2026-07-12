@@ -206,6 +206,12 @@ closed hosts. Un-merged demo env on the host: `normal-lionfish`.
 
 ## Next actions (option 1 adopted)
 
+0. **TRM check (institutional gate):** Docker CE is NOT on all RESGC
+   RHEL9 images — verify TRM status for Docker CE (or Podman as
+   fallback), the Dagger engine image (runs privileged), and the
+   container-use binary. If fleet-wide Docker is blocked, consider the
+   designated-agent-host model (one approved box runs engine +
+   children; users ssh in — ravlymp-ls-000 is this de facto today).
 1. Persist the iptables modules on rhelLS (`/etc/modules-load.d/`).
 2. Benchmark (proposal Plan): parent latency + child throughput at
    1/2/4 concurrent children, ~50K-token contexts, on devstral vs
