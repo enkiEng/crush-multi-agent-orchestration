@@ -1,6 +1,6 @@
 # HANDOFF — Crush Interactive Multi-Agent Orchestration
 
-**Last updated:** 2026-07-11 (session end)
+**Last updated:** 2026-07-12
 **Repo:** https://github.com/enkiEng/crush-multi-agent-orchestration (public, Apache 2.0)
 **Local path:** `~/AI-projects/AI-chatbots/crush-multi-agent-orchestration/` (nested repo; ignored by the parent AI-projects GitLab repo)
 
@@ -12,10 +12,12 @@ OpenAI-compatible endpoint. Requirements: interactive parent session,
 parent-model-initiated spawning of unattended children, per-child isolation,
 user review before merge.
 
-## State as of 2026-07-11
+## State as of 2026-07-12
 
-- Proposal is at **Revision 3** (`Interactive_Multi-Agent_Crush_Proposal.md`),
-  committed and pushed (`0459db0`). The v1 original remains in iCloud
+- Proposal is at **Revision 4** (`Interactive_Multi-Agent_Crush_Proposal.md`):
+  Herdr claims upgraded from vendor-documented to hands-on verified, and
+  Herdr-supervised children documented as an alternative to `--yolo`.
+  The v1 original remains in iCloud
   (`~/Library/Mobile Documents/com~apple~CloudDocs/Interactive_Multi-Agent_Crush_Proposal.md`).
 - Rev 2 fixed three v1 defects: the false "no `--yolo` needed" safety claim
   (children must auto-approve; worktrees are merge hygiene, not a security
@@ -56,9 +58,15 @@ user review before merge.
 - **Herdr** (herdr.dev): agent-aware tmux alternative; panes with automatic
   blocked/working/done/idle state, socket API + CLI (`herdr workspace
   create`, `herdr pane split/run`) so agents can orchestrate it. No worktree
-  or isolation management — complementary visibility layer only. Crush is
-  not a named integration (state detection unconfirmed). Vendor-documented,
-  not adversarially verified.
+  or isolation management — complementary visibility layer only.
+  **Hands-on verified 2026-07-12** (herdr 0.7.3, Claude Code parent+child;
+  log in the parent repo's `herdr-tests/FINDINGS.md`): pane
+  split/run/read/close, `wait agent-status`, and `wait output --match` all
+  work from inside a pane; `blocked` fires on permission prompts and the
+  parent can read the dialog and approve via `send-keys` — so
+  Herdr-supervised children need not be `--yolo`. Gotcha: finished turns
+  settle at `idle`, not `done`; wait on `idle` or a sentinel. Crush is
+  still not a named integration (Crush-pane state detection untested).
 - Unranked for lack of evidence (not inferiority): Claude Squad, Composio
   AO, Emdash, Crystal, uzi, gwq, Conductor, Bernstein, OpenCode/Qwen/Gemini
   CLI/Aider/Roo/Cline modes, tmux DIY, SDK frameworks.
@@ -103,6 +111,15 @@ optionally add Herdr as visibility layer.
 - Open questions listed at the end of the proposal (Podman compat, Herdr
   state detection for Crush, Goose subrecipe routing, unverified
   orchestrators).
+
+## Session log (2026-07-12)
+
+1. Tested herdr 0.7.3 live from inside a pane (herdr-tests dir of the parent
+   repo): two-agent orchestration (spawn/assign/wait/read) and blocked-state
+   permission handling both verified; findings committed to the parent repo
+   as `herdr-tests/FINDINGS.md`.
+2. Wrote proposal rev 4: Herdr upgraded to hands-on-verified; added the
+   Herdr-supervision alternative to `--yolo` in Isolation and Safety.
 
 ## Session log (2026-07-11)
 

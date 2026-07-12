@@ -1,8 +1,16 @@
 # Proposal: Interactive Multi-Agent Orchestration for Crush
 
-**Revision:** 3 (2026-07-11)
-**Supersedes:** v2 (2026-07-11); v1 (iCloud original)
-**Changes in this revision:** integrated a deep-research survey of the options
+**Revision:** 4 (2026-07-12)
+**Supersedes:** v3 (2026-07-11); v2 (2026-07-11); v1 (iCloud original)
+**Changes in this revision:** upgraded the Herdr assessment from
+vendor-documented to hands-on verified (herdr 0.7.3, Claude Code
+parent/child test, 2026-07-12): socket-API orchestration, blocked-state
+detection, and remote permission-prompt approval all work, with one
+`done`-vs-`idle` wait gotcha. Consequence: Herdr-supervised children
+need not run `--yolo` (see Isolation and Safety). Crush-pane state
+detection remains untested.
+
+**Changes in revision 3:** integrated a deep-research survey of the options
 landscape (109-agent research run, 26 sources, every claim below marked
 "verified" survived 3-voter adversarial verification on 2026-07-11).
 Corrected the Crush upstream citation (#431, not #1320). **Changed the primary
@@ -134,8 +142,23 @@ so rich state detection for Crush children is unconfirmed. Herdr does
 **not** manage worktrees or isolation (its own comparison page defers
 that to worktree tools) — so it complements options 1–2 as the
 process-visibility layer rather than competing with them.
-*(Researched separately from the adversarially-verified run; treat as
-documented-by-vendor.)*
+
+**Hands-on verification (2026-07-12, herdr 0.7.3, Claude Code
+parent and child):** the socket API works as documented, driven
+entirely from inside a pane. A parent agent spawned a child pane
+(`pane split --no-focus`), launched a second agent with its task
+preloaded (`pane run`), and synchronized on state transitions with
+`wait agent-status` — `working` fired at startup and, critically,
+`blocked` fired the moment the child hit a permission prompt. The
+parent then read the exact dialog with `pane read` (command, rationale,
+options), approved it remotely with `pane send-keys enter`, and the
+child completed the task. New prompts can also be injected into a
+child's live session (`pane send-text` + `send-keys enter`). Caveats:
+after a turn completes, the pane can settle at `idle` rather than
+`done`, so completion-waits should target `idle` or a sentinel string
+via `wait output --match`; and detection is verified for Claude Code
+panes only — Crush panes remain untested. Full log:
+`herdr-tests/FINDINGS.md` in the (private) AI-projects GitLab repo.
 
 ### Disqualified and unranked
 
@@ -158,6 +181,18 @@ child agents **must** run with `--yolo` (or an exhaustive
 `allowed_tools` list) because nobody is watching them to approve
 permission prompts. What this design actually delivers is that the
 *user's* session stays interactive while the *children* are batch.
+
+The 2026-07-12 Herdr verification adds a third option: children running
+in Herdr panes *do* have a watcher. The parent can block on
+`wait agent-status --status blocked`, inspect the child's permission
+dialog with `pane read`, and approve or deny with `pane send-keys` —
+verified end-to-end with a Claude Code child. This is supervision, not
+isolation: each privileged command is gated on parent review instead of
+blanket trust, and it composes with either isolation posture below. Its
+usefulness for Crush children depends on the untested Crush-pane state
+detection (see Open Questions), and the parent must genuinely review
+the dialog — auto-Enter on every `blocked` event is `--yolo` with extra
+steps.
 
 Git worktrees isolate the git working copy **only**. A `--yolo` child
 retains full filesystem access outside its worktree, plus the user's
@@ -189,7 +224,10 @@ path today. Respecified as **pull**, with two implementations:
 -   **Either path + Herdr:** run children in Herdr panes for
     human-visible live output with automatic blocked/working/done/idle
     state and notifications — machine-readable via Herdr's socket API.
-    This supersedes the plain-tmux suggestion from v2.
+    This supersedes the plain-tmux suggestion from v2. State detection,
+    blocking waits, and remote prompt handling verified hands-on
+    2026-07-12 for Claude Code panes (see the Herdr section); note the
+    `idle`-vs-`done` completion-wait gotcha there.
 
 ## Implementation: an MCP Server (option 2 detail)
 
@@ -342,7 +380,9 @@ layer.
 -   Can Goose achieve per-child model routing and real isolation via
     subrecipes/extensions?
 -   Does Herdr's state detection work for Crush panes without a named
-    integration?
+    integration? (Detection, blocking waits, and blocked-state prompt
+    handling verified for Claude Code panes on 2026-07-12; Crush panes
+    still untested.)
 
 ## Benefits
 
@@ -373,3 +413,8 @@ were excluded above. Primary sources: [crush README](https://github.com/charmbra
 [Goose subagents docs](https://goose-docs.ai/docs/guides/context-engineering/subagents/),
 [vibe-kanban](https://github.com/BloopAI/vibe-kanban),
 [herdr.dev](https://herdr.dev/).
+
+Herdr claims upgraded to hands-on verified on 2026-07-12: two-agent
+orchestration and blocked-state handling tested live on herdr 0.7.3
+with Claude Code as both parent and child (test log:
+`herdr-tests/FINDINGS.md` in the private AI-projects GitLab repo).
