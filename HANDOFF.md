@@ -14,11 +14,12 @@ user review before merge.
 
 ## State as of 2026-07-12
 
-- **Step 0 stage A: PASSED all three gates — fully closed**, including
-  the user's own interactive gate-3 confirmation (see "Stage A results"
-  below and the results block in the proposal's Plan section). Stage B
-  (RHEL9 in-VPC) is the remaining gate before adoption.
-- Proposal is at **Revision 8** (`Interactive_Multi-Agent_Crush_Proposal.md`):
+- **STEP 0 COMPLETE — both stages PASSED all three gates → option 1
+  (container-use) is ADOPTED.** Stage A closed on the Mac (incl. the
+  user's interactive gate-3 confirmation); stage B closed on RHEL 9.8
+  in the GovCloud VPC (see "Stage B results" below and the results
+  blocks in the proposal's Plan section).
+- Proposal is at **Revision 10** (`Interactive_Multi-Agent_Crush_Proposal.md`):
   Herdr claims upgraded from vendor-documented to hands-on verified (rev 4),
   Herdr-supervised children documented as an alternative to `--yolo` (rev 4),
   the Crush-pane detection question answered (rev 5), a "Where Control
@@ -146,23 +147,73 @@ v0.18.14, Docker Desktop 29.1.3.
   container-use's `docs/agent-integrations.mdx` (it's just not in the
   first 200 lines of the rendered page).
 
-## Next action: Step 0 stage B (RHEL9 in-VPC — the real gate)
+## Stage B results (2026-07-12): PASSED — all three gates
 
-Repeat stage A on RHEL9 inside the GovCloud VPC against the in-VPC vLLM
-endpoint with the no-egress checklist (proposal Plan section): mirror
-`registry.dagger.io/engine:v0.18.14` + base images into GovCloud ECR,
-install from transferred binaries, set `CRUSH_DISABLE_METRICS=1` +
-`CRUSH_DISABLE_PROVIDER_AUTO_UPDATE=1`, providers from a local file;
-Docker CE if policy allows, else rootful Podman (docker-compat socket,
-raised pids limit — container-use-over-Podman is itself a stage B gate).
-Carry over the stage A fixes: `"timeout": 300` on the MCP entry and
-pre-warm the engine before the first session.
+Host `ravlymp-ls-000` (RHEL 9.8, GovCloud VPC; reached via
+`ssh mac2 'ssh rhelLS-ts ...'` — Tailscale, config on mac2). Already
+present: Docker CE 29.6.1, Crush 0.81.0-resgc-copilotfix (launch via
+`crush-vpc`, a Bedrock-credential-blocking wrapper), kubectl + AWS
+admin, providers configured (`resgc-devstral` openai-compat →
+`http://devstral.llm.resgc.internal:8000/v1`, model `devstral-small-2`).
+Installed for the test: container-use v0.4.2 (checksum-verified binary
+transfer). Test repo `~/stageb/stageb-test` on the host; engine runs as
+container `dagger-engine-cu` (bridge network, restart=always, volume
+`dagger-engine-cu2`).
 
-**Stage B pass →** adopt option 1; add task-spec/RESULT.md protocol via
-CRUSH.md; optionally add Herdr as visibility layer (audit its update
-pings first for in-VPC use — unverified).
-**Fail gate 1/3 →** build option 2 (custom stdio MCP server over
-worktrees; ~1 day MVP; spec is in the proposal).
+Gate results: stdio stable (19 MCP calls, 3 concurrent envs, zero
+transport errors); model-initiated `environment_create` through Crush's
+MCP client (separate env per subtask + a combined one it invented,
+pytest green in all); `list/log/diff/merge/apply` all work, merged code
+re-verified 6/6 on the host.
+
+**RHEL9/VPC gotchas (all fixed — carry these to any new host):**
+
+1. Engine crash-loop: legacy iptables vs nftables-only RHEL9 →
+   `modprobe iptable_nat` + `modprobe iptable_filter` (one module per
+   call). **NOT yet persisted — add /etc/modules-load.d/ entry or a
+   reboot re-breaks the engine.**
+2. Global `commit.gpgsign=true` breaks container-use's internal
+   commits (pinentry, no TTY) → `GIT_CONFIG_COUNT/KEY_0/VALUE_0`
+   scoped in the MCP `env` in `.crush.json`.
+3. Host hardening `ip_forward=0`: containers have NO general egress.
+   DNS works via the bridge-gateway listener (10.87.0.1); same-subnet
+   VPC endpoints ARE reachable → engine pulls from ECR
+   (`468501357939.dkr.ecr.us-gov-east-1.amazonaws.com/cu-base:latest`
+   = ubuntu:24.04 + python3 + pytest, built `--network=host`).
+   **User decision: keep hardening; environments run offline** —
+   prebake everything into the base image; set via
+   `container-use config base-image set <ECR URI>` (committed in the
+   test repo).
+4. `"timeout": 300` on the MCP entry honored by the 0.81 build.
+5. Headless-yolo reproduces on 0.81: `edit`/`bash` auto-approved
+   despite the whitelist.
+
+**Model caveat (devstral-small-2):** drives the tools but is not
+robust unattended — false "tools unavailable" surrender, a 62-call
+create-retry loop ending in a false "Task completed", host-file edits
+against instructions (one of which was, ironically, the correct
+base-image fix). Prompts must grant env permission explicitly, avoid
+escape hatches, cap retries. Benchmark should compare
+`mistral-small-24b` as parent.
+
+**Ops notes:** vLLM scales to 0 on weekends
+(`kubectl scale deploy vllm-devstral-24b -n llm-inference --replicas=1`
+to wake; ~6 min to ready incl. GPU node autoscale). Left RUNNING after
+the test per user instruction. Host reaches docker.io directly
+(allowlisted egress) — the strict transfer posture wasn't needed here.
+Tailscale hop ≈ 1 MB/s; use S3-via-VPC-endpoint for bulk on truly
+closed hosts. Un-merged demo env on the host: `normal-lionfish`.
+
+## Next actions (option 1 adopted)
+
+1. Persist the iptables modules on rhelLS (`/etc/modules-load.d/`).
+2. Benchmark (proposal Plan): parent latency + child throughput at
+   1/2/4 concurrent children, ~50K-token contexts, on devstral vs
+   mistral-small-24b; record in `../benchmarks.md`. This also decides
+   whether devstral-small-2 is robust enough to be the parent.
+3. Task-spec/RESULT.md protocol via CRUSH.md rules.
+4. Optional: Herdr as visibility layer (audit its update pings first).
+5. Watch crush#431 (native subagents would obsolete parts of this).
 
 ## After Step 0
 
@@ -173,6 +224,27 @@ worktrees; ~1 day MVP; spec is in the proposal).
 - Open questions listed at the end of the proposal (Podman compat, Goose
   subrecipe routing, unverified orchestrators; Herdr-detection-for-Crush
   was answered 2026-07-12).
+
+## Session log (2026-07-12, session 3 — stage B execution)
+
+1. Recon: found the VPC path in ssh configs (this Mac → mac2 →
+   `rhelLS-ts` over Tailscale); fixed the mac2 host entry (chest-homelab
+   key). Discovered Docker CE, Crush-resgc, kubectl/AWS admin already
+   on the host; located the vLLM services and the `crush-vpc` wrapper.
+2. Transferred container-use v0.4.2 + test repo; aborted a 650 MB
+   engine-image transfer after catching an arm64/amd64 mixup — direct
+   docker pull on the host worked anyway (allowlisted egress).
+3. Weekend surprise: vLLM scaled to 0 (user warned). User chose to
+   scale up (4-GPU node autoscaled, ~6 min); user later said leave it
+   up after the test.
+4. Debugged four failures in sequence: engine iptables crash-loop
+   (modprobe fix), gpgsign (GIT_CONFIG_* in MCP env), model
+   false-surrender (prompt fix), engine DNS/egress (ip_forward=0
+   hardening → user chose offline envs; built+pushed cu-base to ECR;
+   engine pulls via same-subnet ECR VPC endpoint — a detour through a
+   local-registry idea proved unnecessary).
+5. Run 6 passed all gates; merge/apply verified 6/6 on host; wrote
+   proposal rev 10 + this handoff.
 
 ## Session log (2026-07-12, session 2 — stage A execution)
 

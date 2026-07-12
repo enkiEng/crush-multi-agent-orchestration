@@ -1,10 +1,21 @@
 # Proposal: Interactive Multi-Agent Orchestration for Crush
 
-**Revision:** 9 (2026-07-12)
-**Supersedes:** v8 (2026-07-12); v7 (2026-07-12); v6 (2026-07-12); v5
-(2026-07-12); v4 (2026-07-12); v3 (2026-07-11); v2 (2026-07-11); v1
-(iCloud original)
-**Changes in this revision:** stage A's gate 3 confirmed **interactively
+**Revision:** 10 (2026-07-12)
+**Supersedes:** v9 (2026-07-12); v8 (2026-07-12); v7 (2026-07-12); v6
+(2026-07-12); v5 (2026-07-12); v4 (2026-07-12); v3 (2026-07-11); v2
+(2026-07-11); v1 (iCloud original)
+**Changes in this revision:** **Step 0 stage B executed and PASSED all
+three gates on RHEL 9.8 in the GovCloud VPC** (host `ravlymp-ls-000`,
+Crush 0.81.0-resgc-copilotfix via `crush-vpc`, container-use v0.4.2,
+Dagger engine v0.18.14, model `devstral-small-2` on the in-VPC vLLM
+endpoint). **Step 0 is now fully closed → adopt option 1.** Four
+host-specific gotchas were found and fixed, one host-policy decision
+was made (environments run with **no network** — the hardening stays),
+and the model-quality caveat is now evidence-backed: devstral-small-2
+drives the tools but is not robust unattended. Details in the Plan
+section's stage B results block.
+
+**Changes in revision 9:** stage A's gate 3 confirmed **interactively
 by the user**, closing the human-judgment half that the headless run
 could not cover: a hand-driven Crush TUI session spawned two fresh
 environments (one trust/apply prompt at session start for the project's
@@ -548,6 +559,78 @@ per Dagger's Podman docs — Dagger-on-Podman is documented upstream,
 but container-use-over-Podman specifically is unverified and is itself
 a stage B gate.
 
+> **Stage B result (2026-07-12): PASSED — all three gates.** Host
+> `ravlymp-ls-000` (RHEL 9.8, Docker CE 29.6.1 already present, Crush
+> 0.81.0-resgc-copilotfix already deployed, launched via the
+> `crush-vpc` Bedrock-blocking wrapper), model `devstral-small-2` on
+> the in-VPC vLLM endpoint, driven end-to-end over SSH (Mac →
+> mac2 → Tailscale → host). Test repo `~/stageb/stageb-test`.
+>
+> - **Gate 1 — stdio stability: PASS.** Full session, 19 MCP tool
+>   calls, three concurrent environments, zero transport errors.
+> - **Gate 2 — model-initiated spawning: PASS (with model caveats
+>   below).** `environment_create` called through Crush's MCP client;
+>   separate environments per subtask (plus a third combined one the
+>   model invented); tests green inside all of them (pytest 3/3 each).
+> - **Gate 3 — review workflow: PASS.** `list`/`log`/`diff` all
+>   informative; `merge` landed slug keeping agent commits; `apply`
+>   staged wrap; all 6 checks re-verified green on the host.
+>
+> **Host-specific gotchas found and fixed (the reason stage B
+> existed):**
+>
+> 1.  **Dagger engine crash-loops on RHEL9:** the engine ships legacy
+>     iptables; RHEL9 is nftables-only, so the legacy `nat` table
+>     doesn't exist. Fix: `modprobe iptable_nat iptable_filter` (one
+>     module per modprobe call!) — **must be persisted via
+>     `/etc/modules-load.d/` or a reboot re-breaks it.**
+> 2.  **Global `commit.gpgsign=true` breaks `environment_create`:**
+>     container-use's internal git commits hit pinentry with no TTY.
+>     Fix: scope `GIT_CONFIG_COUNT/KEY_0/VALUE_0 =
+>     commit.gpgsign/false` into the MCP server's `env` in
+>     `.crush.json` — leaves the user's normal signing intact.
+> 3.  **Host hardening (`net.ipv4.ip_forward=0`, firewalld drop zone):
+>     containers have no general egress.** DNS works via a listener on
+>     the docker bridge gateway (10.87.0.1 on this host), and —
+>     decisive — **same-subnet VPC interface endpoints ARE reachable**
+>     from bridge containers, so the engine pulls from ECR
+>     (`.../cu-base:latest`) while docker.io and cross-subnet
+>     resolvers are unreachable. Decision (user): keep the hardening;
+>     **environments run with no network** — arguably better child
+>     isolation. Consequence: base images must be prebaked (built
+>     `cu-base` = ubuntu:24.04 + python3 + pytest with
+>     `docker build --network=host`, pushed to ECR, wired via
+>     `container-use config base-image set <ECR URI>`).
+> 4.  **The 15 s MCP timeout fix from stage A carries over:** the
+>     0.81 custom build honors `"timeout": 300` (a 300 s
+>     "context canceled" was observed while the engine was
+>     crash-looping — the timeout fired exactly as configured).
+>
+> **Model findings (`devstral-small-2`) — gate 2's real payload:**
+> tool-calling works through vLLM, but unattended robustness is weak.
+> Observed across runs: a false "tools are not available" surrender
+> right after a *successful* tool call (spooked by container-use's
+> "DO NOT change environments without explicit permission" hint plus
+> an escape-hatch clause in the prompt); a 62-call
+> `environment_create` retry loop ending in a false "Task completed";
+> and host-file edits despite explicit instructions not to (though
+> one such edit — switching the base image to the ECR URI — was
+> actually the correct fix the harness needed). Consequences: parent
+> prompts must grant environment permission explicitly, avoid escape
+> hatches, and cap retries; the benchmark step should also compare
+> `mistral-small-24b` (or a stronger model) as the parent; the
+> stage A headless-yolo finding reproduces on 0.81 (`edit`/`bash`
+> auto-approved despite the whitelist).
+>
+> **Checklist reality check:** the host reaches docker.io and
+> registry.dagger.io directly (allowlisted/proxied egress), so the
+> transfer-everything posture was not needed on this host — binaries
+> were transferred, images pulled directly. The tailscale hop runs
+> ~1 MB/s; for genuinely closed hosts, S3-via-VPC-endpoint is the
+> right bulk path. The vLLM deployment scales to zero on weekends
+> (`kubectl scale deploy vllm-devstral-24b -n llm-inference
+> --replicas=1` to wake; left running after the test per user).
+
 *No-egress checklist for stage B:*
 
 -   Mirror required images into GovCloud ECR:
@@ -569,6 +652,13 @@ a stage B gate.
 **If the smoke test passes:** adopt option 1. Add the task-spec/
 RESULT.md protocol via `CRUSH.md` rules. Optionally add Herdr as the
 visibility layer for child sessions.
+
+> **Both stages passed (2026-07-12) → option 1 is adopted.** Remaining
+> work, in order: (1) persist the iptables modules on the RHEL9 host
+> (`/etc/modules-load.d/`); (2) the benchmark step below, now with the
+> added question of whether `devstral-small-2` is robust enough as
+> parent or `mistral-small-24b`/a stronger model should drive; (3) the
+> task-spec/RESULT.md protocol via `CRUSH.md`; (4) optionally Herdr.
 
 **If it fails:** build option 2 — the MVP is roughly a day:
 
@@ -595,13 +685,14 @@ layer.
 
 -   ~~Does Crush + container-use work reliably on current (mid-2026)
     versions, given #840 was closed not-planned?~~ **Answered
-    2026-07-12 (stage A): yes on macOS** — #840 did not reproduce; the
-    only failure was Crush's 15 s default MCP timeout vs the ~90 s
-    cold Dagger-engine pull, fixed with `"timeout": 300`. RHEL9 in-VPC
-    (stage B) remains the open half.
--   Does container-use run over rootful Podman on RHEL9? (Dagger
-    documents Podman support; container-use specifically is untested —
-    Step 0 stage B answers this, with Docker CE as the fallback.)
+    2026-07-12, both halves: yes.** Stage A (macOS): #840 did not
+    reproduce; only failure was the 15 s default MCP timeout vs the
+    ~90 s cold engine pull (`"timeout": 300` fixes it). Stage B
+    (RHEL 9.8 in-VPC): passes after the iptables-modules, gpgsign,
+    and offline-base-image fixes (see the stage B results block).
+-   ~~Does container-use run over rootful Podman on RHEL9?~~ **Mooted
+    2026-07-12:** the target host already runs Docker CE 29.6.1;
+    Podman was never needed. Still unverified in general.
 -   Does herdr phone home (update checks / channels), and can that be
     disabled for in-VPC use?
 -   Real capability of the unverified orchestrators (Claude Squad, uzi,
