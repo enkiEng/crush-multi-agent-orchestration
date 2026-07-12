@@ -206,6 +206,10 @@ closed hosts. Un-merged demo env on the host: `normal-lionfish`.
 
 ## Fleet deployment architecture (direction set 2026-07-12): dedicated container-host
 
+> Client bootstrap artifacts are drafted in `fleet/` (README, bash +
+> PowerShell init scripts, `.crush.json` template, agent rules) —
+> reviewable attachments for the TRM/host proposal.
+
 Decision from the fleet-rollout discussion: do NOT put Docker/Dagger on
 every RESGC workstation, and get the engine OFF the license server
 (ravlymp-ls-000 — it hosted all Step 0/benchmark work and its disk is
