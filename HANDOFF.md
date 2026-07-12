@@ -14,7 +14,8 @@ user review before merge.
 
 ## State as of 2026-07-12
 
-- **Step 0 stage A: PASSED all three gates** (see "Stage A results"
+- **Step 0 stage A: PASSED all three gates — fully closed**, including
+  the user's own interactive gate-3 confirmation (see "Stage A results"
   below and the results block in the proposal's Plan section). Stage B
   (RHEL9 in-VPC) is the remaining gate before adoption.
 - Proposal is at **Revision 8** (`Interactive_Multi-Agent_Crush_Proposal.md`):
@@ -120,7 +121,14 @@ v0.18.14, Docker Desktop 29.1.3.
 - **Gate 3 (review workflow): PASS** — `list`/`log` (full command
   transcript incl. pytest output)/`diff` all informative; `merge`
   landed one env keeping agent commits, `apply` staged the other;
-  merged code re-verified green on the host.
+  merged code re-verified green on the host. **User-confirmed
+  interactively same day:** hand-driven Crush TUI session (fresh
+  truncate + initials task) spawned envs `proven-raccoon` and
+  `model-cheetah`; one trust/apply prompt at session start (project
+  `.crush.json`), then unattended to completion (whitelisted tools);
+  user ran `log`/`diff` review and judged the workflow workable.
+  Those two envs were left un-merged in `cu-step0-test` on purpose —
+  available for future merge/apply demos.
 - **Gotcha (root-caused, fixed):** Crush's MCP connect timeout defaults
   to **15 s**; container-use's first-ever start takes ~90 s (Dagger
   engine image pull) → MCP init dies ("context canceled" in
@@ -183,6 +191,10 @@ worktrees; ~1 day MVP; spec is in the proposal).
    merge + apply, host re-test 6/6).
 6. Wrote proposal rev 8 (stage A results, timeout gotcha, headless-yolo
    safety finding, open question half-answered) and updated this handoff.
+7. Seeded a round-2 task (truncate + initials) in `cu-step0-test`; user
+   ran the interactive Crush session and the `log`/`diff` review by hand
+   and confirmed gate 3 first-hand (one trust prompt at start, then
+   unattended). Recorded as rev 9.
 
 ## Session log (2026-07-12, session 1)
 

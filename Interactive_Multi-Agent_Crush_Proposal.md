@@ -1,9 +1,20 @@
 # Proposal: Interactive Multi-Agent Orchestration for Crush
 
-**Revision:** 8 (2026-07-12)
-**Supersedes:** v7 (2026-07-12); v6 (2026-07-12); v5 (2026-07-12); v4
-(2026-07-12); v3 (2026-07-11); v2 (2026-07-11); v1 (iCloud original)
-**Changes in this revision:** **Step 0 stage A executed and PASSED all
+**Revision:** 9 (2026-07-12)
+**Supersedes:** v8 (2026-07-12); v7 (2026-07-12); v6 (2026-07-12); v5
+(2026-07-12); v4 (2026-07-12); v3 (2026-07-11); v2 (2026-07-11); v1
+(iCloud original)
+**Changes in this revision:** stage A's gate 3 confirmed **interactively
+by the user**, closing the human-judgment half that the headless run
+could not cover: a hand-driven Crush TUI session spawned two fresh
+environments (one trust/apply prompt at session start for the project's
+local `.crush.json`, then unattended to completion since the
+container-use tools are whitelisted), and the user reviewed the
+environments with `container-use log`/`diff` and judged the workflow
+workable. Stage A is now fully closed; stage B (RHEL9 in-VPC) is the
+only remaining gate.
+
+**Changes in revision 8:** **Step 0 stage A executed and PASSED all
 three gates** (Mac, Crush v0.84.1 + container-use v0.4.2 + Dagger engine
 v0.18.14, claude-sonnet-5): stdio survived a full session with two
 concurrent environments (#840 not reproduced); the model called
@@ -498,6 +509,12 @@ branch-per-environment review working.
 >   pytest output; `diff` shows a clean patch; `merge` landed one
 >   environment keeping the agent's commits; `apply` staged the other
 >   for a local commit. Merged code re-verified green on the host.
+>   **Confirmed interactively by the user later the same day:** a
+>   hand-driven Crush TUI session (fresh two-module task) spawned two
+>   environments with a single trust/apply prompt at session start
+>   (the project's local `.crush.json`) and no further prompts —
+>   whitelisted container-use tools ran unattended to completion —
+>   and the `log`/`diff` review flow was judged workable first-hand.
 >
 > **Gotcha (root-caused, fixed):** on the first-ever run the
 > container-use server pulls the Dagger engine image (~90 s), but
