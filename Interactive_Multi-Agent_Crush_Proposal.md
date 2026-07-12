@@ -1,9 +1,25 @@
 # Proposal: Interactive Multi-Agent Orchestration for Crush
 
-**Revision:** 7 (2026-07-12)
-**Supersedes:** v6 (2026-07-12); v5 (2026-07-12); v4 (2026-07-12); v3
-(2026-07-11); v2 (2026-07-11); v1 (iCloud original)
-**Changes in this revision:** recorded the deployment target as a hard
+**Revision:** 8 (2026-07-12)
+**Supersedes:** v7 (2026-07-12); v6 (2026-07-12); v5 (2026-07-12); v4
+(2026-07-12); v3 (2026-07-11); v2 (2026-07-11); v1 (iCloud original)
+**Changes in this revision:** **Step 0 stage A executed and PASSED all
+three gates** (Mac, Crush v0.84.1 + container-use v0.4.2 + Dagger engine
+v0.18.14, claude-sonnet-5): stdio survived a full session with two
+concurrent environments (#840 not reproduced); the model called
+`environment_create` twice unprompted through Crush's MCP client; and
+`log`/`diff`/`merge`/`apply` review all work. One critical gotcha found
+and fixed: **Crush's MCP connection timeout defaults to 15 s**, while
+container-use's first-ever startup takes ~90 s (pulling the Dagger
+engine image) — MCP init fails with "context canceled" and the tools
+never appear in-session. Fix: `"timeout": 300` on the MCP entry, plus
+pre-warming the engine before first use. One safety finding: headless
+`crush run` executed `bash` without approval despite a
+`permissions.allowed_tools` whitelist that did not include it —
+non-interactive mode is effectively `--yolo`, so the whitelist protects
+interactive sessions only. Stage A details in the Plan section.
+
+**Changes in revision 7:** recorded the deployment target as a hard
 requirement — production use is inside a secure AWS GovCloud VPC with
 an in-VPC Kubernetes/vLLM endpoint (no data egress), driven from RHEL9.
 Split Step 0 into a Mac plumbing stage and a RHEL9 in-VPC gate; added a
@@ -237,6 +253,15 @@ child agents **must** run with `--yolo` (or an exhaustive
 permission prompts. What this design actually delivers is that the
 *user's* session stays interactive while the *children* are batch.
 
+Stage A (2026-07-12) sharpened this further: headless `crush run`
+executed `bash` without any approval even though the project's
+`permissions.allowed_tools` whitelist did not include it —
+**non-interactive mode auto-approves everything**, so for headless
+children the whitelist is not a control at all. The parenthetical
+above applies only to interactive (e.g. Herdr-pane) children;
+headless children are `--yolo` whether or not the flag is passed, and
+their confinement must come from the container boundary.
+
 The 2026-07-12 Herdr verification adds a third option: children running
 in Herdr panes *do* have a watcher. The parent can block on
 `wait agent-status --status blocked`, inspect the child's permission
@@ -454,6 +479,48 @@ two-child parallel task (Crush already runs here against
 mode), model-initiated `environment_create` actually firing, and
 branch-per-environment review working.
 
+> **Stage A result (2026-07-12): PASSED — all three gates.** Test repo
+> `AI-chatbots/cu-step0-test` (Crush v0.84.1, container-use v0.4.2,
+> Dagger engine v0.18.14, Docker Desktop 29.1.3, model
+> `anthropic/claude-sonnet-5` via headless `crush run`; two missing
+> Python modules with tests as the natural two-subtask split).
+>
+> - **Gate 1 — stdio stability: PASS.** The MCP session survived a full
+>   run with two concurrent environments; zero transport errors in
+>   Crush's logs. The #840 broken-pipe mode did not reproduce.
+> - **Gate 2 — model-initiated spawning: PASS.** The session DB shows
+>   exactly two `mcp_container-use_environment_create` calls plus
+>   file-write/run-cmd calls, all through Crush's MCP client; both
+>   environments ran their test file to green (6/6) in isolation, host
+>   tree untouched.
+> - **Gate 3 — review workflow: PASS.** `list` shows titled
+>   environments; `log` shows the full command transcript including
+>   pytest output; `diff` shows a clean patch; `merge` landed one
+>   environment keeping the agent's commits; `apply` staged the other
+>   for a local commit. Merged code re-verified green on the host.
+>
+> **Gotcha (root-caused, fixed):** on the first-ever run the
+> container-use server pulls the Dagger engine image (~90 s), but
+> Crush's MCP connect timeout defaults to **15 s** — init dies with
+> "context canceled" and the tools never appear for the whole session.
+> Fix: `"timeout": 300` on the MCP entry in `.crush.json`; for stage B,
+> also pre-pull `registry.dagger.io/engine:v0.18.14` (it's in the ECR
+> mirror list anyway) and warm it with a `container-use list` before
+> the first session.
+>
+> **Safety finding:** in the failed-init run the model improvised —
+> it drove the MCP server over stdio via `bash` and still did the work
+> in containers. Impressive, but it means headless `crush run`
+> auto-approved `bash` despite a `permissions.allowed_tools` whitelist
+> that did not include it: **non-interactive mode is effectively
+> `--yolo`**. The whitelist governs interactive sessions only; child
+> hardening must come from the container boundary (or Herdr-supervised
+> interactive children), not from Crush permissions.
+>
+> **Also confirmed:** environments live inside the single Dagger engine
+> container (BuildKit), not as separate top-level containers — one
+> engine image to mirror, not N.
+
 *Stage B — RHEL9 in the GovCloud VPC (the real gate):* repeat stage A
 against the in-VPC vLLM endpoint. Container runtime: **Docker CE** if
 policy allows (officially packaged for RHEL9 and exactly matches the
@@ -509,8 +576,12 @@ layer.
 
 ## Open Questions
 
--   Does Crush + container-use work reliably on current (mid-2026)
-    versions, given #840 was closed not-planned? (Step 0 answers this.)
+-   ~~Does Crush + container-use work reliably on current (mid-2026)
+    versions, given #840 was closed not-planned?~~ **Answered
+    2026-07-12 (stage A): yes on macOS** — #840 did not reproduce; the
+    only failure was Crush's 15 s default MCP timeout vs the ~90 s
+    cold Dagger-engine pull, fixed with `"timeout": 300`. RHEL9 in-VPC
+    (stage B) remains the open half.
 -   Does container-use run over rootful Podman on RHEL9? (Dagger
     documents Podman support; container-use specifically is untested —
     Step 0 stage B answers this, with Docker CE as the fallback.)

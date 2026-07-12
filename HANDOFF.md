@@ -14,13 +14,18 @@ user review before merge.
 
 ## State as of 2026-07-12
 
-- Proposal is at **Revision 6** (`Interactive_Multi-Agent_Crush_Proposal.md`):
+- **Step 0 stage A: PASSED all three gates** (see "Stage A results"
+  below and the results block in the proposal's Plan section). Stage B
+  (RHEL9 in-VPC) is the remaining gate before adoption.
+- Proposal is at **Revision 8** (`Interactive_Multi-Agent_Crush_Proposal.md`):
   Herdr claims upgraded from vendor-documented to hands-on verified (rev 4),
   Herdr-supervised children documented as an alternative to `--yolo` (rev 4),
   the Crush-pane detection question answered (rev 5), a "Where Control
   Lives" section added — Herdr is mechanism, not controller (rev 6), and
   the deployment target recorded as a requirement: secure AWS GovCloud VPC,
-  in-VPC k8s/vLLM, no data egress, RHEL9 driver; WS2022 rejected (rev 7).
+  in-VPC k8s/vLLM, no data egress, RHEL9 driver; WS2022 rejected (rev 7),
+  and stage A results + MCP-timeout gotcha + headless-yolo safety finding
+  recorded (rev 8).
   The v1 original remains in iCloud
   (`~/Library/Mobile Documents/com~apple~CloudDocs/Interactive_Multi-Agent_Crush_Proposal.md`).
 - Rev 2 fixed three v1 defects: the false "no `--yolo` needed" safety claim
@@ -97,49 +102,59 @@ user review before merge.
   AO, Emdash, Crystal, uzi, gwq, Conductor, Bernstein, OpenCode/Qwen/Gemini
   CLI/Aider/Roo/Cline modes, tmux DIY, SDK frameworks.
 
-## Next action: Step 0 smoke test (~half a day, two stages)
+## Stage A results (2026-07-12): PASSED — all three gates
 
-Answers the gating unknowns: does Crush + container-use work on current
-versions despite #840, and does it work on RHEL9 in the GovCloud VPC?
-**Stage A (Mac)** proves the plumbing cheaply; **stage B (RHEL9 in-VPC,
-the real gate)** repeats it against the in-VPC vLLM endpoint with the
-no-egress checklist (see the proposal's Plan section): mirror
-`registry.dagger.io/engine` + base images into GovCloud ECR, install from
-transferred binaries, set `CRUSH_DISABLE_METRICS=1` +
+Executed headlessly (`crush run`, model `anthropic/claude-sonnet-5`) in
+the throwaway repo `~/AI-projects/AI-chatbots/cu-step0-test` (gitignored
+in the parent AI-projects repo; official `.crush.json` from the Charm
+Crush section of container-use's agent-integrations doc + `rules/agent.md`
+as `CRUSH.md`; two missing Python modules with tests as the two-subtask
+split). Versions: Crush v0.84.1, container-use v0.4.2, Dagger engine
+v0.18.14, Docker Desktop 29.1.3.
+
+- **Gate 1 (stdio stability): PASS** — full session, two concurrent
+  environments, zero transport errors; #840 did not reproduce.
+- **Gate 2 (model-initiated spawning): PASS** — session DB shows exactly
+  two `mcp_container-use_environment_create` calls through Crush's MCP
+  client; both envs ran tests to green (6/6); host tree untouched.
+- **Gate 3 (review workflow): PASS** — `list`/`log` (full command
+  transcript incl. pytest output)/`diff` all informative; `merge`
+  landed one env keeping agent commits, `apply` staged the other;
+  merged code re-verified green on the host.
+- **Gotcha (root-caused, fixed):** Crush's MCP connect timeout defaults
+  to **15 s**; container-use's first-ever start takes ~90 s (Dagger
+  engine image pull) → MCP init dies ("context canceled" in
+  `.crush/logs/crush.log`) and tools are absent all session. Fix:
+  `"timeout": 300` on the MCP entry. For stage B: pre-pull the engine
+  image and warm with `container-use list` before the first session.
+- **Safety finding:** in the failed-init run the model drove the MCP
+  server via `bash` — headless `crush run` auto-approved `bash` despite
+  an `allowed_tools` whitelist that did not include it.
+  **Non-interactive mode is effectively `--yolo`;** the whitelist only
+  governs interactive sessions. Child confinement = container boundary.
+- Environments live inside the single Dagger engine container, not as
+  separate top-level containers (one engine image to mirror for ECR).
+- Also re-verified: the "Charm Crush" section still exists in
+  container-use's `docs/agent-integrations.mdx` (it's just not in the
+  first 200 lines of the rendered page).
+
+## Next action: Step 0 stage B (RHEL9 in-VPC — the real gate)
+
+Repeat stage A on RHEL9 inside the GovCloud VPC against the in-VPC vLLM
+endpoint with the no-egress checklist (proposal Plan section): mirror
+`registry.dagger.io/engine:v0.18.14` + base images into GovCloud ECR,
+install from transferred binaries, set `CRUSH_DISABLE_METRICS=1` +
 `CRUSH_DISABLE_PROVIDER_AUTO_UPDATE=1`, providers from a local file;
 Docker CE if policy allows, else rootful Podman (docker-compat socket,
-raised pids limit).
+raised pids limit — container-use-over-Podman is itself a stage B gate).
+Carry over the stage A fixes: `"timeout": 300` on the MCP entry and
+pre-warm the engine before the first session.
 
-Stage A steps:
-
-1. Docker running; `brew install dagger/tap/container-use`;
-   `container-use version`. (Crush v0.84.1 is already installed on the Mac
-   and picks up `ANTHROPIC_API_KEY` from the env — stage A does not need
-   the vLLM endpoint reachable.)
-2. In a test repo: add `container-use stdio` as a stdio MCP server in
-   `.crush.json` (Crush guide at container-use.com/agent-integrations); add
-   their recommended agent rules to `CRUSH.md` (without rules the model
-   won't reach for the tools).
-3. Keep the existing vLLM `openai-compat` provider config unchanged.
-4. Interactive Crush session; give a task that splits into two independent
-   subtasks ("use a separate environment for each"). Watch three gates:
-   - **Gate 1 — transport stability:** stdio survives a full session with
-     two concurrent environments (failure = #840 mode → fall back to
-     custom MCP server, option 2 in the proposal).
-   - **Gate 2 — model-initiated spawning:** the model actually calls
-     `environment_create` twice unprompted (failure = model tool-calling
-     weakness or #1733 → problem is the model, not plumbing; fix that
-     before building anything).
-   - **Gate 3 — review workflow:** `container-use list` / `log <id>` /
-     `diff <id>` / `checkout <id>`, then `merge <id>` (keeps agent commits)
-     or `apply <id>` (stage for own commit) feels workable.
-
-**Stage A pass →** run stage B on RHEL9 in-VPC before adopting anything.
-**Both pass →** adopt option 1; add task-spec/RESULT.md protocol via
+**Stage B pass →** adopt option 1; add task-spec/RESULT.md protocol via
 CRUSH.md; optionally add Herdr as visibility layer (audit its update
 pings first for in-VPC use — unverified).
-**Fail gate 1/3 (either stage) →** build option 2 (custom stdio MCP server
-over worktrees; ~1 day MVP; spec is in the proposal).
+**Fail gate 1/3 →** build option 2 (custom stdio MCP server over
+worktrees; ~1 day MVP; spec is in the proposal).
 
 ## After Step 0
 
@@ -151,7 +166,25 @@ over worktrees; ~1 day MVP; spec is in the proposal).
   subrecipe routing, unverified orchestrators; Herdr-detection-for-Crush
   was answered 2026-07-12).
 
-## Session log (2026-07-12)
+## Session log (2026-07-12, session 2 — stage A execution)
+
+1. Installed container-use v0.4.2 (brew), started Docker Desktop; verified
+   the Charm Crush guide still exists in container-use's docs.
+2. Built the `cu-step0-test` repo (official `.crush.json` + `CRUSH.md`
+   rules + two-module task); gitignored it in the parent AI-projects repo.
+3. Run 1 (headless, claude-sonnet-5): MCP init died at exactly 15 s
+   (default timeout) during the ~90 s cold Dagger-engine pull; the model
+   improvised by driving the MCP server via bash — work still done in
+   containers, exposing the headless-yolo behavior.
+4. Root-caused via `.crush/logs/crush.log` + the crush.json schema
+   (MCPConfig `timeout`, default 15); set `"timeout": 300`.
+5. Run 2: clean pass through Crush's MCP client — all three gates green
+   (verified via session DB tool-call names, container-use log/diff,
+   merge + apply, host re-test 6/6).
+6. Wrote proposal rev 8 (stage A results, timeout gotcha, headless-yolo
+   safety finding, open question half-answered) and updated this handoff.
+
+## Session log (2026-07-12, session 1)
 
 1. Tested herdr 0.7.3 live from inside a pane (herdr-tests dir of the parent
    repo): two-agent orchestration (spawn/assign/wait/read) and blocked-state
