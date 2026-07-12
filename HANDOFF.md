@@ -14,10 +14,11 @@ user review before merge.
 
 ## State as of 2026-07-12
 
-- Proposal is at **Revision 5** (`Interactive_Multi-Agent_Crush_Proposal.md`):
+- Proposal is at **Revision 6** (`Interactive_Multi-Agent_Crush_Proposal.md`):
   Herdr claims upgraded from vendor-documented to hands-on verified (rev 4),
   Herdr-supervised children documented as an alternative to `--yolo` (rev 4),
-  and the Crush-pane detection question answered (rev 5).
+  the Crush-pane detection question answered (rev 5), and a "Where Control
+  Lives" section added — Herdr is mechanism, not controller (rev 6).
   The v1 original remains in iCloud
   (`~/Library/Mobile Documents/com~apple~CloudDocs/Interactive_Multi-Agent_Crush_Proposal.md`).
 - Rev 2 fixed three v1 defects: the false "no `--yolo` needed" safety claim
@@ -130,6 +131,8 @@ optionally add Herdr as visibility layer.
 3. Installed Crush v0.84.1 on the Mac (brew) and tested Herdr detection of
    Crush panes; answered the open question (rev 5). Findings appended to
    `herdr-tests/FINDINGS.md` (test 4) in the parent repo.
+4. Added "Where Control Lives" section (rev 6): user = strategic control,
+   parent Crush model = tactical control, Herdr = passive switchboard.
 
 ## Session log (2026-07-11)
 

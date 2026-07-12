@@ -1,9 +1,14 @@
 # Proposal: Interactive Multi-Agent Orchestration for Crush
 
-**Revision:** 5 (2026-07-12)
-**Supersedes:** v4 (2026-07-12); v3 (2026-07-11); v2 (2026-07-11); v1
-(iCloud original)
-**Changes in this revision:** answered rev 4's remaining open question —
+**Revision:** 6 (2026-07-12)
+**Supersedes:** v5 (2026-07-12); v4 (2026-07-12); v3 (2026-07-11); v2
+(2026-07-11); v1 (iCloud original)
+**Changes in this revision:** added the "Where Control Lives" section
+clarifying the control layering when Herdr is in the stack — Herdr is
+mechanism, not controller; strategic control stays with the user,
+tactical control with the parent Crush model.
+
+**Changes in revision 5:** answered rev 4's remaining open question —
 Herdr (0.7.3) **does detect Crush panes** (Crush v0.84.1) via built-in
 detection: agent identification and `working` state work, but `blocked`
 does **not** fire on Crush's permission dialogs (it does for Claude
@@ -230,6 +235,56 @@ Isolation postures, in increasing strength:
 
 Option 1 makes the stronger posture the default rather than an upgrade,
 which is a further argument for trying it first.
+
+## Where Control Lives (Herdr's Role)
+
+Herdr's own tagline ("agents can orchestrate it") invites a
+misreading: that adding Herdr moves control into Herdr. It does not.
+**Herdr holds no control — it is the switchboard, not the operator.**
+Control stays split exactly as elsewhere in this proposal; Herdr only
+changes *where the children run* (visible panes instead of invisible
+detached processes).
+
+    You (human) — strategic control
+     │   chat with the parent; approve each spawn; review diffs before
+     │   merge; can click into ANY child pane and take over manually
+     ▼
+    Parent Crush session — tactical control
+     │   its model decides the decomposition and issues the commands:
+     │   MCP tools (container-use / custom server) or plain bash calls
+     │   to the herdr CLI — each gated by Crush's permission prompt
+     ▼
+    Herdr server — no control, just mechanism
+     │   holds the terminal panes, detects child state
+     │   (working/blocked/done), answers queries, executes pane commands
+     ├── pane: child agent A
+     ├── pane: child agent B
+     └── pane: child agent C
+
+Herdr is passive the way tmux is: it never decides to spawn, approve,
+or merge anything; it acts only when something calls its socket API,
+and the caller is the parent session (or the user). What it adds over
+headless children is observability and reach:
+
+1.  **The user can watch:** each child is a live terminal pane, not a
+    background process knowable only through status files.
+2.  **The parent can react:** instead of pure pull/polling (parent
+    reads `status.jsonl` when it thinks to), the parent can block on
+    `wait agent-status` / `wait output` and know the moment a child
+    stalls or finishes (verified 2026-07-12; see the Herdr section for
+    per-agent caveats).
+3.  **Manual override is free:** if a child goes sideways, the user
+    clicks into its pane and types. Parent-mediated and human-direct
+    control coexist on the same pane with no extra tooling.
+
+The chain of authority is: the user approves intentions → the parent
+model executes them → Herdr carries them out and reports state back.
+In the 2026-07-12 tests the tester (a Claude Code session) was both
+the parent agent and the thing driving Herdr, which can make Herdr
+look like part of the control loop; in the Crush end-state the parent
+Crush model plays that role, with every Herdr call surfacing as a
+normal Crush permission prompt first. Isolation still comes entirely
+from container-use or worktrees — Herdr contributes nothing there.
 
 ## Progress Reporting
 
