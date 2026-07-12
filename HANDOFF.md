@@ -14,9 +14,10 @@ user review before merge.
 
 ## State as of 2026-07-12
 
-- Proposal is at **Revision 4** (`Interactive_Multi-Agent_Crush_Proposal.md`):
-  Herdr claims upgraded from vendor-documented to hands-on verified, and
-  Herdr-supervised children documented as an alternative to `--yolo`.
+- Proposal is at **Revision 5** (`Interactive_Multi-Agent_Crush_Proposal.md`):
+  Herdr claims upgraded from vendor-documented to hands-on verified (rev 4),
+  Herdr-supervised children documented as an alternative to `--yolo` (rev 4),
+  and the Crush-pane detection question answered (rev 5).
   The v1 original remains in iCloud
   (`~/Library/Mobile Documents/com~apple~CloudDocs/Interactive_Multi-Agent_Crush_Proposal.md`).
 - Rev 2 fixed three v1 defects: the false "no `--yolo` needed" safety claim
@@ -64,9 +65,15 @@ user review before merge.
   split/run/read/close, `wait agent-status`, and `wait output --match` all
   work from inside a pane; `blocked` fires on permission prompts and the
   parent can read the dialog and approve via `send-keys` — so
-  Herdr-supervised children need not be `--yolo`. Gotcha: finished turns
-  settle at `idle`, not `done`; wait on `idle` or a sentinel. Crush is
-  still not a named integration (Crush-pane state detection untested).
+  Herdr-supervised children need not be `--yolo`.
+  **Crush panes (v0.84.1) tested same day:** built-in detection identifies
+  `agent: "crush"` and fires `working`/`done` — but `blocked` does NOT fire
+  on Crush permission dialogs (watch dialog text via `wait output --match`
+  instead), and completion states are per-agent: Claude Code settles at
+  `idle`, Crush at `done`. A herdr-based supervisor needs an agent-specific
+  wait-strategy table or output sentinels. No hook integration exists for
+  Crush (and none were installed for these tests — all detection observed
+  is built-in pattern matching).
 - Unranked for lack of evidence (not inferiority): Claude Squad, Composio
   AO, Emdash, Crystal, uzi, gwq, Conductor, Bernstein, OpenCode/Qwen/Gemini
   CLI/Aider/Roo/Cline modes, tmux DIY, SDK frameworks.
@@ -108,9 +115,9 @@ optionally add Herdr as visibility layer.
   latency + child throughput at 1/2/4 concurrent children with realistic
   ~50K-token contexts on the production model. This number sets fleet size.
 - Watch crush#431 — native subagents would reduce/obsolete this layer.
-- Open questions listed at the end of the proposal (Podman compat, Herdr
-  state detection for Crush, Goose subrecipe routing, unverified
-  orchestrators).
+- Open questions listed at the end of the proposal (Podman compat, Goose
+  subrecipe routing, unverified orchestrators; Herdr-detection-for-Crush
+  was answered 2026-07-12).
 
 ## Session log (2026-07-12)
 
@@ -120,6 +127,9 @@ optionally add Herdr as visibility layer.
    as `herdr-tests/FINDINGS.md`.
 2. Wrote proposal rev 4: Herdr upgraded to hands-on-verified; added the
    Herdr-supervision alternative to `--yolo` in Isolation and Safety.
+3. Installed Crush v0.84.1 on the Mac (brew) and tested Herdr detection of
+   Crush panes; answered the open question (rev 5). Findings appended to
+   `herdr-tests/FINDINGS.md` (test 4) in the parent repo.
 
 ## Session log (2026-07-11)
 

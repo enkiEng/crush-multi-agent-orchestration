@@ -1,14 +1,23 @@
 # Proposal: Interactive Multi-Agent Orchestration for Crush
 
-**Revision:** 4 (2026-07-12)
-**Supersedes:** v3 (2026-07-11); v2 (2026-07-11); v1 (iCloud original)
-**Changes in this revision:** upgraded the Herdr assessment from
+**Revision:** 5 (2026-07-12)
+**Supersedes:** v4 (2026-07-12); v3 (2026-07-11); v2 (2026-07-11); v1
+(iCloud original)
+**Changes in this revision:** answered rev 4's remaining open question —
+Herdr (0.7.3) **does detect Crush panes** (Crush v0.84.1) via built-in
+detection: agent identification and `working` state work, but `blocked`
+does **not** fire on Crush's permission dialogs (it does for Claude
+Code), and Crush settles at `done` where Claude Code settles at `idle`.
+Consequence: Herdr supervision of Crush children is viable but must use
+output-matching (`wait output --match`) instead of the `blocked` state,
+and completion-waits are agent-specific.
+
+**Changes in revision 4:** upgraded the Herdr assessment from
 vendor-documented to hands-on verified (herdr 0.7.3, Claude Code
 parent/child test, 2026-07-12): socket-API orchestration, blocked-state
 detection, and remote permission-prompt approval all work, with one
 `done`-vs-`idle` wait gotcha. Consequence: Herdr-supervised children
-need not run `--yolo` (see Isolation and Safety). Crush-pane state
-detection remains untested.
+need not run `--yolo` (see Isolation and Safety).
 
 **Changes in revision 3:** integrated a deep-research survey of the options
 landscape (109-agent research run, 26 sources, every claim below marked
@@ -153,11 +162,22 @@ preloaded (`pane run`), and synchronized on state transitions with
 parent then read the exact dialog with `pane read` (command, rationale,
 options), approved it remotely with `pane send-keys enter`, and the
 child completed the task. New prompts can also be injected into a
-child's live session (`pane send-text` + `send-keys enter`). Caveats:
-after a turn completes, the pane can settle at `idle` rather than
-`done`, so completion-waits should target `idle` or a sentinel string
-via `wait output --match`; and detection is verified for Claude Code
-panes only — Crush panes remain untested. Full log:
+child's live session (`pane send-text` + `send-keys enter`).
+
+**Crush-pane verification (same day, Crush v0.84.1):** Herdr's
+*built-in* detection covers Crush — no hook integration exists for it
+(nor were any installed for the tests above; even Claude Code detection
+was pattern-based). `pane get` identifies `agent: "crush"` within
+seconds, and `working` fires when a task starts. Two asymmetries vs
+Claude Code: Crush's permission dialogs (Allow / Allow for Session /
+Deny) do **not** trigger `blocked` — the pane stays `working`, so
+supervision must watch for the dialog with `wait output --match` — and
+a finished Crush turn settles at `done` where Claude Code settles at
+`idle`. Remote driving of the Crush TUI works (`send-keys enter`
+approves the dialog; `tab` toggles editor/chat focus and `enter` only
+submits with the editor focused). Net: completion- and blocked-waits
+are **agent-specific**; a supervisor needs a per-agent wait-strategy
+table or output sentinels rather than one state machine. Full log:
 `herdr-tests/FINDINGS.md` in the (private) AI-projects GitLab repo.
 
 ### Disqualified and unranked
@@ -188,11 +208,13 @@ in Herdr panes *do* have a watcher. The parent can block on
 dialog with `pane read`, and approve or deny with `pane send-keys` —
 verified end-to-end with a Claude Code child. This is supervision, not
 isolation: each privileged command is gated on parent review instead of
-blanket trust, and it composes with either isolation posture below. Its
-usefulness for Crush children depends on the untested Crush-pane state
-detection (see Open Questions), and the parent must genuinely review
-the dialog — auto-Enter on every `blocked` event is `--yolo` with extra
-steps.
+blanket trust, and it composes with either isolation posture below. For
+Crush children specifically, the `blocked` signal does not fire on
+permission dialogs (verified 2026-07-12), so the parent must detect
+them with `wait output --match` on the dialog text instead — workable,
+but less robust than the event-driven Claude Code path. Either way the
+parent must genuinely review the dialog — auto-Enter on every prompt is
+`--yolo` with extra steps.
 
 Git worktrees isolate the git working copy **only**. A `--yolo` child
 retains full filesystem access outside its worktree, plus the user's
@@ -226,8 +248,10 @@ path today. Respecified as **pull**, with two implementations:
     state and notifications — machine-readable via Herdr's socket API.
     This supersedes the plain-tmux suggestion from v2. State detection,
     blocking waits, and remote prompt handling verified hands-on
-    2026-07-12 for Claude Code panes (see the Herdr section); note the
-    `idle`-vs-`done` completion-wait gotcha there.
+    2026-07-12 for both Claude Code and Crush panes (see the Herdr
+    section) — with per-agent asymmetries: completion settles at `idle`
+    for Claude Code but `done` for Crush, and Crush permission dialogs
+    don't raise `blocked`.
 
 ## Implementation: an MCP Server (option 2 detail)
 
@@ -379,10 +403,10 @@ layer.
     execution and per-subagent isolation?
 -   Can Goose achieve per-child model routing and real isolation via
     subrecipes/extensions?
--   Does Herdr's state detection work for Crush panes without a named
-    integration? (Detection, blocking waits, and blocked-state prompt
-    handling verified for Claude Code panes on 2026-07-12; Crush panes
-    still untested.)
+-   ~~Does Herdr's state detection work for Crush panes without a named
+    integration?~~ **Answered 2026-07-12:** yes for agent identification
+    and `working`/`done`; no for `blocked` on permission dialogs (use
+    `wait output --match` instead). See the Herdr section.
 
 ## Benefits
 
@@ -416,5 +440,6 @@ were excluded above. Primary sources: [crush README](https://github.com/charmbra
 
 Herdr claims upgraded to hands-on verified on 2026-07-12: two-agent
 orchestration and blocked-state handling tested live on herdr 0.7.3
-with Claude Code as both parent and child (test log:
-`herdr-tests/FINDINGS.md` in the private AI-projects GitLab repo).
+with Claude Code as parent and child, and Crush v0.84.1 pane detection
+tested the same day (test log: `herdr-tests/FINDINGS.md` in the private
+AI-projects GitLab repo).
