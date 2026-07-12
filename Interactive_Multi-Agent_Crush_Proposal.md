@@ -1,9 +1,20 @@
 # Proposal: Interactive Multi-Agent Orchestration for Crush
 
-**Revision:** 6 (2026-07-12)
-**Supersedes:** v5 (2026-07-12); v4 (2026-07-12); v3 (2026-07-11); v2
-(2026-07-11); v1 (iCloud original)
-**Changes in this revision:** added the "Where Control Lives" section
+**Revision:** 7 (2026-07-12)
+**Supersedes:** v6 (2026-07-12); v5 (2026-07-12); v4 (2026-07-12); v3
+(2026-07-11); v2 (2026-07-11); v1 (iCloud original)
+**Changes in this revision:** recorded the deployment target as a hard
+requirement — production use is inside a secure AWS GovCloud VPC with
+an in-VPC Kubernetes/vLLM endpoint (no data egress), driven from RHEL9.
+Split Step 0 into a Mac plumbing stage and a RHEL9 in-VPC gate; added a
+no-egress checklist (image mirroring, offline installs, kill-switches
+for Crush metrics and Catwalk provider pings). Assessed and rejected a
+Windows Server 2022 path: container-use v0.4.0+ ships native Windows
+binaries, but the Dagger engine needs a Linux container runtime, which
+on Windows Server means WSL2 — and WSL2 needs nested virtualization,
+unavailable on non-metal EC2 instances.
+
+**Changes in revision 6:** added the "Where Control Lives" section
 clarifying the control layering when Herdr is in the stack — Herdr is
 mechanism, not controller; strategic control stays with the user,
 tactical control with the parent Crush model.
@@ -55,6 +66,25 @@ on 2025-12-17 that subagents and skills are **planned** — but nothing
 had shipped as of 2026-06. External tooling is therefore required today,
 and this proposal should be revisited when #431 ships (it may obsolete
 most of it).
+
+## Deployment Target (requirement)
+
+The production environment for this tooling is a **secure AWS GovCloud
+VPC**: all inference is served by the VPC's own Kubernetes/vLLM
+endpoint, and **no data may leave the VPC** — no external LLM APIs, no
+telemetry, no update pings. The driving host is **RHEL9**. The Mac is
+a development/staging environment only; anything proven on the Mac
+must be re-validated on RHEL9 in-VPC before adoption (Step 0, stage B).
+
+Windows Server 2022 was considered as a second driving host and
+**rejected for now**: container-use v0.4.0+ advertises native Windows
+support, but that covers the CLI binary — the Dagger engine underneath
+still requires a Linux container runtime. On Windows that means Docker
+Desktop (not supported on Windows Server) or Docker inside WSL2, and
+WSL2 requires nested virtualization, which EC2 does not offer on
+non-metal instance types. There is no easy WS2022 workflow in
+EC2/GovCloud; revisit only if a bare-metal instance or a non-EC2
+Windows host materializes.
 
 ## Core Idea
 
@@ -415,12 +445,42 @@ costs.
 
 ## Plan (revised)
 
-**Step 0 — smoke test option 1 (half a day):** install container-use on
-current versions, wire it into `.crush.json` per the official guide,
-and run a two-child parallel task against the vLLM endpoint. Gate on:
-stdio stability (the #840 failure mode), model-initiated
-`environment_create` actually firing, and branch-per-environment review
-working.
+**Step 0 — smoke test option 1 (half a day, two stages):**
+
+*Stage A — Mac, plumbing only:* install container-use on current
+versions, wire it into `.crush.json` per the official guide, and run a
+two-child parallel task (Crush already runs here against
+`ANTHROPIC_API_KEY`). Gate on: stdio stability (the #840 failure
+mode), model-initiated `environment_create` actually firing, and
+branch-per-environment review working.
+
+*Stage B — RHEL9 in the GovCloud VPC (the real gate):* repeat stage A
+against the in-VPC vLLM endpoint. Container runtime: **Docker CE** if
+policy allows (officially packaged for RHEL9 and exactly matches the
+container-use docs), otherwise **rootful Podman** with the
+docker-compatible socket
+(`DOCKER_HOST=unix:///run/podman/podman.sock`) and a raised pids limit
+per Dagger's Podman docs — Dagger-on-Podman is documented upstream,
+but container-use-over-Podman specifically is unverified and is itself
+a stage B gate.
+
+*No-egress checklist for stage B:*
+
+-   Mirror required images into GovCloud ECR:
+    `registry.dagger.io/engine:<version>` plus the base images
+    container-use environments will use; point Dagger/container-use at
+    the mirror (custom-runner / image-reference configuration).
+-   Install crush, container-use, dagger, and (optionally) herdr from
+    transferred binaries — no brew or curl-pipe installs in-VPC.
+-   Kill Crush's phone-home: `CRUSH_DISABLE_METRICS=1` (pseudonymous
+    usage metrics; `DO_NOT_TRACK=1` is also honored) and
+    `CRUSH_DISABLE_PROVIDER_AUTO_UPDATE=1` (Catwalk provider-database
+    pings); load provider definitions from a local file with
+    `crush update-providers <file>` or fall back to the embedded list.
+    The vLLM provider is `openai-compat` with an in-VPC `base_url`, so
+    inference traffic never leaves the VPC.
+-   If herdr runs in-VPC, audit its update machinery (`herdr update`,
+    release-channel checks) before allowing it — unverified.
 
 **If the smoke test passes:** adopt option 1. Add the task-spec/
 RESULT.md protocol via `CRUSH.md` rules. Optionally add Herdr as the
@@ -451,6 +511,11 @@ layer.
 
 -   Does Crush + container-use work reliably on current (mid-2026)
     versions, given #840 was closed not-planned? (Step 0 answers this.)
+-   Does container-use run over rootful Podman on RHEL9? (Dagger
+    documents Podman support; container-use specifically is untested —
+    Step 0 stage B answers this, with Docker CE as the fallback.)
+-   Does herdr phone home (update checks / channels), and can that be
+    disabled for in-VPC use?
 -   Real capability of the unverified orchestrators (Claude Squad, uzi,
     gwq, Crystal, Emdash, Conductor, Composio AO) for Crush /
     parent-model-initiated spawning — no verified evidence either way.

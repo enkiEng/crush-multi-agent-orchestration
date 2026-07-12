@@ -17,8 +17,10 @@ user review before merge.
 - Proposal is at **Revision 6** (`Interactive_Multi-Agent_Crush_Proposal.md`):
   Herdr claims upgraded from vendor-documented to hands-on verified (rev 4),
   Herdr-supervised children documented as an alternative to `--yolo` (rev 4),
-  the Crush-pane detection question answered (rev 5), and a "Where Control
-  Lives" section added — Herdr is mechanism, not controller (rev 6).
+  the Crush-pane detection question answered (rev 5), a "Where Control
+  Lives" section added — Herdr is mechanism, not controller (rev 6), and
+  the deployment target recorded as a requirement: secure AWS GovCloud VPC,
+  in-VPC k8s/vLLM, no data egress, RHEL9 driver; WS2022 rejected (rev 7).
   The v1 original remains in iCloud
   (`~/Library/Mobile Documents/com~apple~CloudDocs/Interactive_Multi-Agent_Crush_Proposal.md`).
 - Rev 2 fixed three v1 defects: the false "no `--yolo` needed" safety claim
@@ -75,18 +77,45 @@ user review before merge.
   wait-strategy table or output sentinels. No hook integration exists for
   Crush (and none were installed for these tests — all detection observed
   is built-in pattern matching).
+- **Deployment target (requirement, 2026-07-12):** secure AWS GovCloud VPC,
+  in-VPC k8s/vLLM endpoint, zero data egress, RHEL9 driving host. Mac =
+  staging only. **WS2022 rejected:** container-use v0.4.0+ has native
+  Windows *binaries*, but the Dagger engine needs a Linux container
+  runtime → Docker Desktop (unsupported on Windows Server) or WSL2 →
+  nested virtualization → not available on non-metal EC2.
+- **Crush phone-home kill-switches (verified from README):**
+  `CRUSH_DISABLE_METRICS=1` (pseudonymous metrics; `DO_NOT_TRACK=1` also
+  honored) and `CRUSH_DISABLE_PROVIDER_AUTO_UPDATE=1` (Catwalk provider-db
+  pings); offline providers via `crush update-providers <local-file>` or
+  the embedded list. Only remaining network calls: the LLM provider itself.
+- **Dagger on Podman (documented upstream):** requires rootful Podman,
+  docker-compat socket (`DOCKER_HOST=unix:///run/podman/podman.sock`),
+  raised pids limit (default 2048 too low). container-use over Podman
+  specifically is UNVERIFIED. Docker CE is officially packaged for RHEL9
+  and is the lower-friction stage B choice if policy allows.
 - Unranked for lack of evidence (not inferiority): Claude Squad, Composio
   AO, Emdash, Crystal, uzi, gwq, Conductor, Bernstein, OpenCode/Qwen/Gemini
   CLI/Aider/Roo/Cline modes, tmux DIY, SDK frameworks.
 
-## Next action: Step 0 smoke test (~half a day)
+## Next action: Step 0 smoke test (~half a day, two stages)
 
-Answers the one gating unknown: does Crush + container-use work on current
-versions despite #840?
+Answers the gating unknowns: does Crush + container-use work on current
+versions despite #840, and does it work on RHEL9 in the GovCloud VPC?
+**Stage A (Mac)** proves the plumbing cheaply; **stage B (RHEL9 in-VPC,
+the real gate)** repeats it against the in-VPC vLLM endpoint with the
+no-egress checklist (see the proposal's Plan section): mirror
+`registry.dagger.io/engine` + base images into GovCloud ECR, install from
+transferred binaries, set `CRUSH_DISABLE_METRICS=1` +
+`CRUSH_DISABLE_PROVIDER_AUTO_UPDATE=1`, providers from a local file;
+Docker CE if policy allows, else rootful Podman (docker-compat socket,
+raised pids limit).
+
+Stage A steps:
 
 1. Docker running; `brew install dagger/tap/container-use`;
-   `container-use version`. (RHEL9/work machines: docs say Docker —
-   Podman-socket compatibility is UNVERIFIED; test on the Mac first.)
+   `container-use version`. (Crush v0.84.1 is already installed on the Mac
+   and picks up `ANTHROPIC_API_KEY` from the env — stage A does not need
+   the vLLM endpoint reachable.)
 2. In a test repo: add `container-use stdio` as a stdio MCP server in
    `.crush.json` (Crush guide at container-use.com/agent-integrations); add
    their recommended agent rules to `CRUSH.md` (without rules the model
@@ -105,10 +134,12 @@ versions despite #840?
      `diff <id>` / `checkout <id>`, then `merge <id>` (keeps agent commits)
      or `apply <id>` (stage for own commit) feels workable.
 
-**Pass →** adopt option 1; add task-spec/RESULT.md protocol via CRUSH.md;
-optionally add Herdr as visibility layer.
-**Fail gate 1/3 →** build option 2 (custom stdio MCP server over worktrees;
-~1 day MVP; spec is in the proposal).
+**Stage A pass →** run stage B on RHEL9 in-VPC before adopting anything.
+**Both pass →** adopt option 1; add task-spec/RESULT.md protocol via
+CRUSH.md; optionally add Herdr as visibility layer (audit its update
+pings first for in-VPC use — unverified).
+**Fail gate 1/3 (either stage) →** build option 2 (custom stdio MCP server
+over worktrees; ~1 day MVP; spec is in the proposal).
 
 ## After Step 0
 
@@ -133,6 +164,11 @@ optionally add Herdr as visibility layer.
    `herdr-tests/FINDINGS.md` (test 4) in the parent repo.
 4. Added "Where Control Lives" section (rev 6): user = strategic control,
    parent Crush model = tactical control, Herdr = passive switchboard.
+5. Recorded deployment target (rev 7): GovCloud VPC + in-VPC vLLM +
+   RHEL9, no egress; researched and rejected WS2022 (WSL2 needs nested
+   virt, absent on non-metal EC2); split Step 0 into Mac stage A +
+   in-VPC RHEL9 stage B with a no-egress checklist; verified Crush
+   kill-switch env vars and Dagger-on-Podman requirements.
 
 ## Session log (2026-07-11)
 
