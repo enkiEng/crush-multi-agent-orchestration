@@ -227,6 +227,22 @@ closed hosts. Un-merged demo env on the host: `normal-lionfish`.
    container-use worktrees), compare mistral-small-24b, tune vLLM
    chunked-prefill/priority. devstral-small-2 as unattended child:
    NOT robust (3 pathologies observed in one day).
+   **Mistral comparison + fixed-clone addendum (same day, see
+   `../benchmarks.md`):** `file://` origin URLs fix the clone
+   "invalid endpoint" bug → children then create envs cleanly. With
+   working clones: devstral B2 = 110s wall, 3/3 contained, 2/3 done;
+   mistral B2 = 100s, 3/3 contained, no loops — but **container-use's
+   per-repo state races under concurrent children**: env index
+   scrambled (both models), one devstral child killed, ALL THREE
+   mistral result envs lost. That concurrency bug is now the dominant
+   parallel blocker (fix: per-child distinct repos, or upstream).
+   mistral-small-3.2-24b: calmer under parallelism, but shipped an
+   8/9 result under a false "all passing" claim serially. Both models
+   emit false completion claims → external test-verification gate is
+   mandatory. Crush 0.81 `-m` flag breaks on project-defined providers
+   ("found in multiple providers: X and X") — use a project `models`
+   override instead. Both vLLM deployments left RUNNING (devstral +
+   mistral) — user to decide scale-down.
 3. Task-spec/RESULT.md protocol via CRUSH.md rules.
 4. Optional: Herdr as visibility layer (audit its update pings first).
 5. Watch crush#431 (native subagents would obsolete parts of this).
