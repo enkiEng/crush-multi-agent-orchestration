@@ -1,0 +1,37 @@
+{
+  "$schema": "https://charm.land/crush.json",
+  "mcp": {
+    "container-use": {
+      "type": "stdio",
+      "command": "container-use",
+      "args": ["stdio"],
+      "env": {
+        "_EXPERIMENTAL_DAGGER_RUNNER_HOST": "{{ENGINE}}",
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "commit.gpgsign",
+        "GIT_CONFIG_VALUE_0": "false"
+      },
+      "timeout": 300
+    }
+  },
+  "permissions": {
+    "allowed_tools": [
+      "mcp_container-use_environment_add_service",
+      "mcp_container-use_environment_checkpoint",
+      "mcp_container-use_environment_config",
+      "mcp_container-use_environment_create",
+      "mcp_container-use_environment_file_delete",
+      "mcp_container-use_environment_file_edit",
+      "mcp_container-use_environment_file_list",
+      "mcp_container-use_environment_file_read",
+      "mcp_container-use_environment_file_write",
+      "mcp_container-use_environment_open",
+      "mcp_container-use_environment_run_cmd",
+      "mcp_container-use_environment_update_metadata"
+    ]
+  },
+  "options": {
+    "disable_metrics": true,
+    "disable_provider_auto_update": true
+  }
+}
