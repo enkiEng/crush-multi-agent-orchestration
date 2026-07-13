@@ -266,18 +266,17 @@ Key facts supporting this design (verified today unless noted):
 
 ## Next actions (option 1 adopted)
 
-0. **TRM check (institutional gate):** Docker CE is NOT on all RESGC
-   RHEL9 images — but under the dedicated container-host architecture
-   (section above) the ask shrinks to: one approved host running
-   Docker CE + the Dagger engine (privileged) + optionally the gh
-   runner, plus the unprivileged container-use client binary on
-   workstations. Verify that package; Podman remains the fallback
-   runtime (still unverified with container-use).
-0b. **Stand up the dedicated container-host** (EC2, RHEL9, no GPU,
-   big disk, same-subnet ECR endpoints, SG locked to client
-   instances); migrate the engine off ravlymp-ls-000; then smoke-test
-   the remote tcp:// chain from a RHEL9 workstation AND a WS2022
-   instance (Windows chain is the novel/unverified part).
+0. **POC-first (owner principle, 2026-07-13): NO TRM submission yet.**
+   RESGC runs as an extended POC; TRM is for production. Stand up the
+   dedicated container-host as an ordinary POC EC2 (RHEL9, no GPU, big
+   disk, same-subnet ECR endpoints, SG locked to client instances);
+   migrate the engine off ravlymp-ls-000; smoke-test the remote tcp://
+   chain from a RHEL9 workstation AND a WS2022 instance (Windows chain
+   is the novel/unverified part); get it into a few analysts' hands via
+   `fleet/`. IF the sandbox workflow proves itself in use, THEN take
+   the already-drafted package to TRM with adoption evidence attached.
+   Podman remains the fallback runtime (still unverified with
+   container-use).
 1. Persist the iptables modules on rhelLS (`/etc/modules-load.d/`).
 2. ~~Benchmark~~ **DONE 2026-07-12 — see `../benchmarks.md`. Verdict:
    with devstral-small-2 the practical fleet is 1 (serial).** B1
