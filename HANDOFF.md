@@ -210,21 +210,27 @@ closed hosts. Un-merged demo env on the host: `normal-lionfish`.
 > PowerShell init scripts, `.crush.json` template, agent rules) —
 > reviewable attachments for the TRM/host proposal.
 >
-> ⚠ **BLOCKING MUST-VERIFY (found 2026-07-13): the remote-engine
-> premise below is in doubt.** container-use v0.4.2 IGNORED every
-> externally-set `_EXPERIMENTAL_DAGGER_RUNNER_HOST` in testing (bogus
-> ssh:// and docker-container:// alike) and used its own locally-
-> provisioned engine. container-use's model is "auto-provision an
-> engine via LOCAL Docker." If a client with NO local Docker (esp.
-> WS2022) cannot be pointed at a remote tcp:// engine, this entire
-> thin-client design fails and Windows clients are blocked. **Test
-> FIRST, before standing up any host:** on a clean client with no
-> local engine, does `_EXPERIMENTAL_DAGGER_RUNNER_HOST=tcp://host:port`
-> actually route to the remote engine? If NO → fallback options:
-> run container-use ON the host and give each user a restricted
-> SSH/RDP session to it; or build proposal option 2 (custom worktree
-> MCP server) which has no such coupling. (Full analysis: k8s-llm
-> `docs/SYSTEM-ASSESSMENT-2026-07.md` §4 fleet-architecture flag.)
+> 🛑 **BLOCKING — VERIFIED NEGATIVE (2026-07-13): the remote-engine
+> premise below DOES NOT WORK as drafted.** Tested a genuine clean
+> client (home Mac, Docker quit → no local engine) against the LIVE
+> rhelLS engine exposed over TCP (socat bridge of buildkitd.sock and
+> engine.sock, tunneled via mac2, TCP reachability confirmed).
+> `_EXPERIMENTAL_DAGGER_RUNNER_HOST=tcp://host:port` HUNG with no
+> connection — both via container-use stdio AND the raw dagger CLI,
+> both socket types. Root cause: the working `docker-container://`
+> driver runs `buildctl dial-stdio` INSIDE the engine container; a raw
+> TCP bridge doesn't replicate that. **A Docker-less client (esp.
+> WS2022) cannot be pointed at a remote engine over tcp://.** Not
+> proven strictly impossible (Dagger may have a TLS/broker remote mode
+> we didn't configure), but it is NOT the one-env-var model this design
+> assumed. **The thin-client architecture in this section must be
+> reworked before any host is stood up.** Fallbacks (pick at
+> prod-planning): (1) run container-use ON the host, each user gets a
+> restricted shell/RDP session to it; (2) build proposal option 2
+> (custom worktree MCP server — no Dagger coupling, ~1-day MVP);
+> (3) research a supported Dagger remote-engine mode that works
+> air-gapped. Full test writeup: k8s-llm
+> `docs/SYSTEM-ASSESSMENT-2026-07.md` §4.
 
 Decision from the fleet-rollout discussion: do NOT put Docker/Dagger on
 every RESGC workstation, and get the engine OFF the license server
