@@ -209,6 +209,22 @@ closed hosts. Un-merged demo env on the host: `normal-lionfish`.
 > Client bootstrap artifacts are drafted in `fleet/` (README, bash +
 > PowerShell init scripts, `.crush.json` template, agent rules) —
 > reviewable attachments for the TRM/host proposal.
+>
+> ⚠ **BLOCKING MUST-VERIFY (found 2026-07-13): the remote-engine
+> premise below is in doubt.** container-use v0.4.2 IGNORED every
+> externally-set `_EXPERIMENTAL_DAGGER_RUNNER_HOST` in testing (bogus
+> ssh:// and docker-container:// alike) and used its own locally-
+> provisioned engine. container-use's model is "auto-provision an
+> engine via LOCAL Docker." If a client with NO local Docker (esp.
+> WS2022) cannot be pointed at a remote tcp:// engine, this entire
+> thin-client design fails and Windows clients are blocked. **Test
+> FIRST, before standing up any host:** on a clean client with no
+> local engine, does `_EXPERIMENTAL_DAGGER_RUNNER_HOST=tcp://host:port`
+> actually route to the remote engine? If NO → fallback options:
+> run container-use ON the host and give each user a restricted
+> SSH/RDP session to it; or build proposal option 2 (custom worktree
+> MCP server) which has no such coupling. (Full analysis: k8s-llm
+> `docs/SYSTEM-ASSESSMENT-2026-07.md` §4 fleet-architecture flag.)
 
 Decision from the fleet-rollout discussion: do NOT put Docker/Dagger on
 every RESGC workstation, and get the engine OFF the license server
@@ -227,8 +243,14 @@ RHEL9, no GPU; CPU + RAM + generous disk for the layer cache):
 Key facts supporting this design (verified today unless noted):
 
 - Clients select a remote engine via `_EXPERIMENTAL_DAGGER_RUNNER_HOST`
-  — we used the `docker-container://` form all day; the `tcp://host:port`
-  form is the documented remote-runner mode (NOT yet tested by us).
+  — ⚠ but see the BLOCKING MUST-VERIFY above: in 2026-07-13 tests
+  container-use v0.4.2 IGNORED this var entirely (used its local engine
+  regardless of ssh:// or docker-container:// values). The `tcp://`
+  remote-runner form is Dagger-documented but UNVERIFIED with
+  container-use, and there is now positive evidence cu may not honor
+  it. Note: in stage B we never actually depended on this var — cu
+  auto-discovered the local `dagger-engine-cu` container. Remote use is
+  the untested leap.
 - **WS2022 gets sandboxing back**: the rev 7 rejection only blocked
   running the ENGINE on Windows (WSL2/nested-virt). As a thin client —
   Crush + container-use.exe (native Windows binaries exist, v0.4.0+) +
