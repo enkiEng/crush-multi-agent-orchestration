@@ -297,6 +297,7 @@ def tool_spawn_agent(args):
         "created": time.time(), "net": net, "sandbox": mode,
         "base_commit": base_commit, "repo_root": str(root),
         "task_digest": task[:200], "cancelled": False,
+        "verify_cmd": (args.get("verify_cmd") or "").strip(),
     }
     save_meta(root, meta)
     log(f"spawned {agent_id} pid={proc.pid} sandbox={mode} net={net} branch={branch}")
@@ -346,9 +347,13 @@ def tool_agent_status(args):
 
 def tool_agent_verify(args):
     agent_id = args.get("agent_id") or ""
-    cmd_str = (args.get("cmd") or DEFAULT_VERIFY_CMD).strip()
     root = repo_root()
     meta = load_meta(root, agent_id)
+    # precedence: explicit cmd > the agent's own verify_cmd > repo default.
+    # A repo-wide default that runs the FULL suite correctly fails a child
+    # whose branch lacks its siblings' work (stage B' finding) — per-agent
+    # scoping is usually what you want at review time.
+    cmd_str = (args.get("cmd") or meta.get("verify_cmd") or DEFAULT_VERIFY_CMD).strip()
     home = home_dir(root, agent_id)
     ws = ws_dir(root, agent_id)
     note = ""
@@ -426,6 +431,10 @@ TOOLS = {
                 "branch": {"type": "string", "description":
                            "Branch name (default agent/<id>)."},
                 "net": {"type": "string", "enum": ["vllm", "off"]},
+                "verify_cmd": {"type": "string", "description":
+                               "Verification command scoped to THIS child's "
+                               "deliverable (e.g. its own test file); used as "
+                               "agent_verify's default for this agent."},
             },
             "required": ["task"],
         },

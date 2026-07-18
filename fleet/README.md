@@ -1,59 +1,91 @@
-# Fleet artifacts — sandboxed-agent mode for RESGC workstations
+# Fleet artifacts — sandboxed child agents for RESGC workstations (option 2)
 
-Client-side bootstrap for the **dedicated container-host architecture**
-(see `../HANDOFF.md`, "Fleet deployment architecture"): every
-environment executes on one approved container-services host running
-the Dagger engine; workstations are thin clients.
+Parent Crush sessions delegate subtasks to unattended child agents via
+`crush-agents.py`, a single-file stdio MCP server. Each child runs a
+detached `crush run` inside a **bubblewrap sandbox** on the same
+workstation: OS-level confinement, per-child `file://` clone, own git
+branch, scaffolding (TASK.md / RESULT.md) held outside the repo.
 
-## What the client needs (no privileges, no local Docker)
+**No Docker. No daemon. No privileged engine. No shared host.** This
+replaced the container-use/Dagger fleet design after the remote-engine
+premise was verified negative 2026-07-13 (see `../HANDOFF.md`).
 
-1. `container-use` binary on PATH (single unprivileged file; Linux and
-   Windows builds from dagger/container-use v0.4.2+, checksum-verified)
-2. Crush (already in the RESGC distribution; launch via `crush-vpc`)
-3. Network reachability to the container-host engine port
-   (security-group grant — treat as a privilege)
+## What a client needs (all unprivileged)
+
+1. Crush (already in the RESGC distribution; launch via `crush-vpc`)
+2. `python3` (stock RHEL9)
+3. `bwrap` (bubblewrap; stock RHEL9 — 0.6.3 works, ≥ 0.8.0 adds
+   nested-userns hardening via `--disable-userns`)
 4. Git
+5. This `fleet/` directory on disk
+
+**WS2022 is OUT OF SCOPE for option 2**: bubblewrap is Linux-only, so
+there is no sandbox story for native Windows children. Windows users
+ssh to a RHEL9 host and work there.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `crush-init-sandbox.sh` | Per-project bootstrap, RHEL9/macOS clients |
-| `crush-init-sandbox.ps1` | Per-project bootstrap, WS2022 clients |
-| `crush.json.template` | The `.crush.json` the scripts install (placeholders `{{ENGINE}}`) |
-| `CRUSH-rules.md` | Agent rules installed as the project `CRUSH.md` |
+| `crush-agents.py` | The MCP server: `spawn_agent` / `agent_status` / `agent_verify` / `agent_cancel` / `agent_list` |
+| `agent-sandbox.sh` | bwrap confinement wrapper (workspace-only writes, env scrubbed, optional net cut) |
+| `sandbox-selftest.sh` | Adversarial confinement checklist — run on every new host before trusting children |
+| `crush-init-agents.sh` | Per-repo bootstrap: writes `.crush.json` + `CRUSH.md`, checks prerequisites |
+| `crush.json.option2.template` | The `.crush.json` the bootstrap installs |
+| `CRUSH-rules-option2.md` | Parent delegation rules (child rules are embedded in the server) |
+
+Historical (rejected tcp://-remote-engine design, kept as documentation
+of why it died — HANDOFF "Fleet deployment architecture"):
+`crush-init-sandbox.sh`, `crush-init-sandbox.ps1`, `crush.json.template`,
+`CRUSH-rules.md`.
 
 ## Usage
 
     cd /path/to/your/git/repo
-    crush-init-sandbox.sh --engine tcp://cu-host.resgc.internal:8080
+    /path/to/fleet/crush-init-agents.sh \
+        --child-config ~/opt2/child-crush.json \
+        --verify-cmd 'python3 -m unittest discover -s tests -t . -q'
 
-Then start `crush-vpc` normally. The agent's file/shell work happens in
-container-use environments on the container host; review with
-`container-use list / log <id> / diff <id>`, land with `merge <id>`
-(keeps agent commits) or `apply <id>` (stage for your own commit).
+Then start `crush-vpc` normally and ask the parent to delegate. Review:
 
-## Baked-in fixes (why the template looks the way it does)
+    # in-session: agent_status <id>, then agent_verify <id>  (mandatory)
+    git fetch ~/.crush-agents/<repo-slug>/<id>/home/ws <branch>:<branch>
+    git diff HEAD...<branch>
+    git merge <branch>          # your call, after the diff + verify
 
-- `"timeout": 300` — Crush's MCP connect timeout defaults to 15 s;
-  container-use's first-ever start can exceed it (verified 2026-07-12).
-- `GIT_CONFIG_*` env — global `commit.gpgsign=true` breaks
-  container-use's internal commits (no TTY for pinentry); this scopes
-  `commit.gpgsign=false` to the MCP server process only.
-- `_EXPERIMENTAL_DAGGER_RUNNER_HOST=tcp://…` — selects the remote
-  engine; the `tcp://` form needs no local Docker CLI.
-- 12-tool `allowed_tools` whitelist — unattended container-use calls in
-  interactive sessions. NOTE (verified 2026-07-12): headless
-  `crush run` auto-approves ALL tools regardless of this whitelist;
-  the container boundary, not the whitelist, is the control for
-  unattended runs.
-- Base image pinned to the ECR `cu-base` mirror — environments are
-  offline (no egress from the engine's build containers); everything
-  needed must be prebaked into the base image.
+`--child-config` should point children at a DIFFERENT vLLM endpoint
+than the parent (endpoint split): benchmarks showed child prefills
+saturate an endpoint while a split parent stays at baseline latency.
 
-## Known-unverified
+## Why it looks the way it does (verified findings baked in)
 
-The `tcp://` remote-engine chain (esp. from Windows) has not yet been
-smoke-tested end-to-end — run the three-gate test (transport stability,
-model-initiated `environment_create`, review workflow) from one RHEL9
-and one WS2022 client as the first act after the container host exists.
+- **Sandbox is the only control for children.** Headless `crush run`
+  auto-approves every tool regardless of `allowed_tools` (verified on
+  0.84 and 0.81). Children are therefore always wrapped in
+  `agent-sandbox.sh`: writes confined to the workspace, parent env
+  (incl. AWS creds) scrubbed, real HOME invisible.
+- **`file://` clones, not worktrees.** A linked worktree commits into
+  the parent repo's `.git` — a write hole through the sandbox. Clones
+  also dodge the "invalid endpoint" bare-path bug hit in benchmarks.
+- **Scaffolding lives OUTSIDE the repo** (`home/TASK.md`,
+  `home/RESULT.md`, clone at `home/ws/`). Stage A′ showed a child will
+  `git add -f` an excluded RESULT.md against instructions, giving
+  sibling merges add/add conflicts. Files git can't reach can't be
+  committed.
+- **`agent_verify` is mandatory before any merge.** Both in-VPC 24B
+  models shipped false "all tests pass" claims in benchmarks. The
+  parent rules forbid reporting child success without a green
+  `agent_verify` (which reruns the tests itself, network off).
+- **Per-child HOME** doubles as crush state isolation — the same fix
+  that eliminated cross-child state loss in benchmark addendum 2.
+- **`timeout: 300`** on the MCP entry (Crush default is 15 s).
+
+## Hardening still open (before analyst rollout, not POC-blocking)
+
+- `net=vllm` currently means "whatever the host can reach" (bounded by
+  host no-egress). TODO: per-child netns + nft allowlist to only the
+  vLLM endpoint.
+- Hosts with bwrap < 0.8.0 lack `--disable-userns` (nested-userns LPE
+  hardening). Update bubblewrap or add a seccomp filter.
+- `agent_merge` tool deliberately deferred — merges stay manual until
+  the review workflow has been used in anger.

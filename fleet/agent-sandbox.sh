@@ -45,6 +45,18 @@ case "$NET" in
   *) echo "net must be off|vllm" >&2; exit 2 ;;
 esac
 
+# /etc/resolv.conf is often a symlink into /run (NetworkManager,
+# systemd-resolved), which is NOT bound in the sandbox — the dangling
+# link breaks DNS for net=vllm children (hit in stage B': resolver fell
+# back to [::1]:53). Bind the real file at the symlink's TARGET path so
+# the /etc symlink resolves (mounting over the symlink itself fails:
+# /etc is ro and the link dangles).
+RESOLVFLAG=()
+RESOLV="$(readlink -f /etc/resolv.conf 2>/dev/null || true)"
+if [ -n "$RESOLV" ] && [ "$RESOLV" != /etc/resolv.conf ] && [ -e "$RESOLV" ]; then
+  RESOLVFLAG=(--ro-bind "$RESOLV" "$RESOLV")
+fi
+
 # Block nested user namespaces (the main unprivileged-LPE vector) where
 # bubblewrap supports it (>= 0.8.0). On older bwrap, warn and proceed:
 # POC-accepted gap — fs/env/net confinement still holds; close before
@@ -66,6 +78,7 @@ exec bwrap \
   --ro-bind /lib /lib \
   --ro-bind /lib64 /lib64 \
   --ro-bind /etc /etc \
+  "${RESOLVFLAG[@]}" \
   --proc /proc \
   --dev /dev \
   --tmpfs /tmp \

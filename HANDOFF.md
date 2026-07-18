@@ -1,6 +1,6 @@
 # HANDOFF — Crush Interactive Multi-Agent Orchestration
 
-**Last updated:** 2026-07-12
+**Last updated:** 2026-07-18
 **Repo:** https://github.com/enkiEng/crush-multi-agent-orchestration (public, Apache 2.0)
 **Local path:** `~/AI-projects/AI-chatbots/crush-multi-agent-orchestration/` (nested repo; ignored by the parent AI-projects GitLab repo)
 
@@ -12,7 +12,69 @@ OpenAI-compatible endpoint. Requirements: interactive parent session,
 parent-model-initiated spawning of unattended children, per-child isolation,
 user review before merge.
 
-## State as of 2026-07-12
+## State as of 2026-07-18 — OPTION 2 BUILT AND VERIFIED (both stages)
+
+After the remote-engine premise died (see the 🛑 block below), the user
+chose **proposal option 2** as the RESGC path. It is now implemented and
+gate-tested end-to-end; option 1 (container-use) remains proven but is
+no longer the fleet direction — no Docker/Dagger anywhere.
+
+- **Stack** (all in `fleet/`): `crush-agents.py` — single-file
+  stdlib-only Python 3 stdio MCP server exposing `spawn_agent` /
+  `agent_status` / `agent_verify` / `agent_cancel` / `agent_list`;
+  `agent-sandbox.sh` (bwrap confinement); `sandbox-selftest.sh`
+  (adversarial confinement checklist); `crush-init-agents.sh` (per-repo
+  bootstrap); template + parent rules. README rewritten for option 2;
+  tcp://-era files kept as historical.
+- **Design facts:** per-child `file://` clone (never worktrees — their
+  commits write into the parent `.git`); child HOME + scaffolding
+  (TASK.md/RESULT.md/status.jsonl) at `~/.crush-agents/<slug>/<id>/home/`
+  OUTSIDE the clone so children cannot commit it (a stage-A′ child
+  `git add -f`-ed an excluded RESULT.md against instructions → add/add
+  conflicts between siblings; physical separation fixed it);
+  meta.json/child.log outside the sandbox bind (tamper-proof);
+  `agent_verify` reruns tests itself (net off) with per-agent
+  `verify_cmd` (stage-B′ finding: a repo-wide full-suite default
+  correctly FAILs single-module branches); merges stay manual.
+- **Stage A′ (Mac, sandbox=none, claude parent) PASSED** all three
+  gates; session DB shows all calls through Crush's MCP client; child
+  branches contain only task files; merged; host 6/6 green.
+- **Stage B′ (cgg0001, real bwrap, crush-vpc mistral parent, devstral
+  children) PASSED**: confinement selftest 12/12 (every escape blocked:
+  real-HOME reads, env creds, outside writes, net in net=off);
+  model-initiated spawns via Crush MCP client (session DB); children
+  contained, honest RESULT.md with real test output; merged on host,
+  6/6 green; post-run audit clean (writes only under ~/.crush-agents).
+  Parent honestly reported the full-suite verify FAIL — good behavior,
+  now avoidable via per-agent verify_cmd.
+- **Gotcha fixed (carry to any host):** /etc/resolv.conf is a symlink
+  into /run (NetworkManager) → dangles inside the sandbox → DNS falls
+  back to [::1]:53 and children can't reach vLLM. agent-sandbox.sh now
+  binds the dereferenced file at the symlink's target path.
+- **Benchmark (see `../benchmarks.md` 2026-07-18):** B1 serial 25 s;
+  B2 3-concurrent 36 s, 3/3 contained, 3/3 verify PASS, **all 3
+  branches intact — the container-use state race is structurally gone**
+  (no shared state exists). Parent-endpoint probes at baseline
+  (0.10–0.14 s) throughout. ~6× faster than the container-use B1.
+  Caveat: 2–4K-token contexts; 50K-context prefill saturation numbers
+  from 2026-07-12 still govern big-task sizing.
+- **Host facts (cgg0001):** bubblewrap 0.6.3 (no --disable-userns —
+  POC-accepted gap, wrapper warns), python 3.9.25, crush
+  0.81.0-resgc-copilotfix, userns sysctl at vendor default (65536),
+  no sqlite3 CLI (use python), global gpgsign=true (merge with
+  -c commit.gpgsign=false). vLLM image pulls are ~50 GB ≈ 12 min on a
+  cold autoscaled GPU node — budget wake time accordingly.
+- **Artifacts on hosts:** cgg0001 `~/opt2/` (fleet/, stageb-test with
+  merged result, bench-test, bench_opt2.py, child-crush.json, logs);
+  Mac `~/AI-projects/AI-chatbots/opt2-step0-test` (merged, green).
+  Both vLLM deployments (devstral + mistral) **left RUNNING**
+  2026-07-18 per user decision.
+- **Next (option 2):** nft/slirp per-child net allowlist before analyst
+  rollout; seccomp/updated-bwrap for the userns gap; task-spec/RESULT.md
+  protocol is built in — pilot with 2–3 analysts via `crush-init-agents.sh`;
+  then TRM with adoption evidence (POC-first). Watch crush#431.
+
+## State as of 2026-07-12 (option 1 era — superseded by option 2 above)
 
 - **STEP 0 COMPLETE — both stages PASSED all three gates → option 1
   (container-use) is ADOPTED.** Stage A closed on the Mac (incl. the
