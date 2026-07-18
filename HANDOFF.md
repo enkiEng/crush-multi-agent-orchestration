@@ -59,6 +59,12 @@ no longer the fleet direction — no Docker/Dagger anywhere.
   FEWER prompt tokens (350K vs 543K — no ever-growing agentic context),
   and ran 2.5× faster at 3-way parallelism (56 s vs 140 s). n=1 per
   condition; cleanly-decomposable tasks are the favorable case.
+- **Fleet-size sweep (2026-07-18, `../benchmarks.md`):** N=1/3/6/9
+  concurrent children, 19/19 verified green — no correctness knee.
+  Throughput knee at ~6: **run up to 6 concurrent children per endpoint**
+  for small-context tasks (2.6× wall speedup; median child stretches
+  27 s→64 s from prefill queueing); keep 2–3 for 50K-token-class work.
+  6→9 pays +50% workers for +18% throughput.
 - **Throughput benchmark (see `../benchmarks.md` 2026-07-18):** B1 serial 25 s;
   B2 3-concurrent 36 s, 3/3 contained, 3/3 verify PASS, **all 3
   branches intact — the container-use state race is structurally gone**
