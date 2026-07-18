@@ -57,6 +57,32 @@ Then start `crush-vpc` normally and ask the parent to delegate. Review:
 than the parent (endpoint split): benchmarks showed child prefills
 saturate an endpoint while a split parent stays at baseline latency.
 
+## Pilot sizing guidance (measured 2026-07-18, `benchmarks.md`)
+
+- **Run up to 6 concurrent children per endpoint** for small,
+  tightly-scoped tasks. Measured sweep (N=1/3/6/9, one module per
+  child, 24B children): throughput knee at 6 — 2.6× wall speedup with
+  all children verified green; 6→9 pays +50% workers for +18%
+  throughput.
+- **Hold to 2–3 children for big-context tasks** (50K-token-class
+  prompts): prefill saturation measured 2026-07-12 governs there.
+- Expect **latency stretch, not failures**, as you add children: a
+  child that takes ~30 s alone takes ~2–2.5× that with five siblings
+  (prefill queueing). No correctness degradation was observed up to
+  N=9 (19/19 verified).
+- **Decomposition is the leverage.** Small focused specs are the whole
+  advantage: vs one session doing 3 modules, delegation was correct
+  where the monolith shipped broken code under a false success claim,
+  used ~1.5× fewer prompt tokens, and freed the parent session after
+  ~1 s of spawn calls (vs occupied for the full 140 s). Kitchen-sink
+  specs recreate the monolith inside a sandbox — split by disjoint
+  file sets or don't parallelize.
+- **Never skip `agent_verify`.** In benchmarks both in-VPC models
+  shipped false "all tests pass" claims; the verify gate is what
+  caught them. Scope it per child (`verify_cmd` on `spawn_agent`) —
+  a repo-wide full-suite command correctly fails a branch that lacks
+  its siblings' work.
+
 ## Why it looks the way it does (verified findings baked in)
 
 - **Sandbox is the only control for children.** Headless `crush run`
