@@ -1,0 +1,28 @@
+{
+  "$schema": "https://charm.land/crush.json",
+  "mcp": {
+    "crush-agents": {
+      "type": "stdio",
+      "command": "python3",
+      "args": ["{{FLEET_DIR}}/crush-agents.py"],
+      "env": {
+        "CRUSH_AGENTS_CHILD_CONFIG": "{{CHILD_CONFIG}}",
+        "CRUSH_AGENTS_VERIFY_CMD": "{{VERIFY_CMD}}"
+      },
+      "timeout": 300
+    }
+  },
+  "permissions": {
+    "allowed_tools": [
+      "mcp_crush-agents_spawn_agent",
+      "mcp_crush-agents_agent_status",
+      "mcp_crush-agents_agent_verify",
+      "mcp_crush-agents_agent_cancel",
+      "mcp_crush-agents_agent_list"
+    ]
+  },
+  "options": {
+    "disable_metrics": true,
+    "disable_provider_auto_update": true
+  }
+}
