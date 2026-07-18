@@ -4,6 +4,14 @@
 **Repo:** https://github.com/enkiEng/crush-multi-agent-orchestration (public, Apache 2.0)
 **Local path:** `~/AI-projects/AI-chatbots/crush-multi-agent-orchestration/` (nested repo; ignored by the parent AI-projects GitLab repo)
 
+**Related (separate repo):** these agents run as *clients* of a
+self-hosted, in-VPC vLLM inference platform (OpenAI-compatible
+endpoints on Kubernetes), whose deployment and observability are tracked
+in a separate **private** ops repo. The agent fleet is the workload that
+generates the load that platform's monitoring measures. Kept as two
+repos on purpose: this one is public/Apache-2.0; the platform repo is
+internal — see the boundary note in that repo's handoff.
+
 ## Project goal
 
 Add Claude Code-style parallel agent delegation to Charm's Crush CLI while
