@@ -51,7 +51,15 @@ no longer the fleet direction — no Docker/Dagger anywhere.
   into /run (NetworkManager) → dangles inside the sandbox → DNS falls
   back to [::1]:53 and children can't reach vLLM. agent-sandbox.sh now
   binds the dereferenced file at the symlink's target path.
-- **Benchmark (see `../benchmarks.md` 2026-07-18):** B1 serial 25 s;
+- **Advantage benchmark (2026-07-18, `../benchmarks.md`):** vs a single
+  plain session on identical work (3 modules/42 tests, devstral
+  everywhere): delegation freed the user's session (1 s busy vs 140 s),
+  was correct where the monolith shipped 2 test failures under a false
+  rc=0 success (per-child focused context + agent_verify), used ~1.5×
+  FEWER prompt tokens (350K vs 543K — no ever-growing agentic context),
+  and ran 2.5× faster at 3-way parallelism (56 s vs 140 s). n=1 per
+  condition; cleanly-decomposable tasks are the favorable case.
+- **Throughput benchmark (see `../benchmarks.md` 2026-07-18):** B1 serial 25 s;
   B2 3-concurrent 36 s, 3/3 contained, 3/3 verify PASS, **all 3
   branches intact — the container-use state race is structurally gone**
   (no shared state exists). Parent-endpoint probes at baseline
